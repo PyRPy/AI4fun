@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>PlayBridge — Contract Bridge</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:'Segoe UI',Arial,sans-serif;color:#eee;overflow:hidden;user-select:none;-webkit-user-select:none;
+ background:#0b3d2e;background:radial-gradient(ellipse at center,#17795a 0%,#0b3d2e 65%,#062018 100%)}
+#app{display:flex;height:100vh}
+#table{flex:1;position:relative;display:grid;padding:8px;gap:4px;
+ grid-template-areas:".. nn .." "ww cc ee" ".. ss ..";
+ grid-template-rows:150px 1fr 200px;grid-template-columns:150px 1fr 150px}
+.seat{position:relative;display:flex;align-items:center;justify-content:center}
+#seatN{grid-area:nn}#seatW{grid-area:ww}#seatE{grid-area:ee}#seatS{grid-area:ss}
+.name-tag{position:absolute;top:2px;left:6px;font-size:12px;font-weight:700;color:#ffd76a;text-shadow:0 1px 2px #000;z-index:5}
+.name-tag .turn{display:inline-block;width:8px;height:8px;border-radius:50%;background:#4caf50;margin-left:4px;box-shadow:0 0 6px #4caf50}
+.card-count{position:absolute;bottom:2px;right:8px;font-size:11px;color:#bbb}
+#center{grid-area:cc;position:relative;display:flex;align-items:center;justify-content:center}
+#trickArea{position:relative;width:230px;height:190px}
+.tslot{position:absolute;width:64px;height:90px}
+.tslot.posN{top:0;left:83px}.tslot.posS{bottom:0;left:83px}
+.tslot.posW{top:50px;left:0}.tslot.posE{top:50px;right:0}
+#hintBar{position:absolute;left:50%;transform:translateX(-50%);bottom:172px;max-width:90%;padding:5px 14px;
+ background:rgba(0,0,0,.55);border:1px solid #c9a227;border-radius:14px;font-size:13px;color:#ffe9a8;display:none;z-index:20;white-space:nowrap}
+#contractBanner{position:absolute;top:6px;left:50%;transform:translateX(-50%);padding:4px 16px;background:rgba(0,0,0,.5);
+ border-radius:12px;font-size:14px;font-weight:700;color:#ffd76a;display:none;z-index:20;white-space:nowrap}
+/* side panel */
+#panel{width:280px;margin:8px 8px 8px 0;padding:10px;background:rgba(0,0,0,.35);border-radius:10px;
+ display:flex;flex-direction:column;gap:8px;font-size:13px;overflow:hidden}
+#panel .row{display:flex;justify-content:space-between;gap:6px}
+#panel .lbl{color:#9fc4b4}
+#statusBox{border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:8px}
+#auctionLog{flex:1;overflow-y:auto;background:rgba(0,0,0,.3);border-radius:8px;padding:6px}
+#auctionLog table{width:100%;border-collapse:collapse;text-align:center;font-size:13px}
+#auctionLog th{color:#ffd76a;border-bottom:1px solid rgba(255,255,255,.2);padding:2px}
+#auctionLog td{padding:2px;height:20px}
+#btnRow{display:flex;gap:6px}
+#btnRow button{flex:1;padding:7px 4px;border:0;border-radius:6px;background:#14563f;color:#eee;font-size:12px;cursor:pointer}
+#btnRow button:hover{background:#1c7355}
+#btnRow button.on{background:#c9a227;color:#111;font-weight:700}
+/* cards */
+.c{position:relative;width:64px;height:90px;background:#fdfdf8;border-radius:6px;flex:0 0 auto;
+ box-shadow:1px 2px 5px rgba(0,0,0,.55);color:#141414;cursor:default}
+.c.red{color:#c8102e}
+.c .corner{position:absolute;font-weight:700;font-size:15px;line-height:1.05;text-align:center;width:16px}
+.c .corner small{display:block;font-size:14px}
+.c .tl{top:3px;left:3px}.c .br{bottom:3px;right:3px;transform:rotate(180deg)}
+.c .pip{position:absolute;font-size:21px;transform:translate(-50%,-50%);line-height:1}
+.c .pip.flip{transform:translate(-50%,-50%) rotate(180deg)}
+.c .bigpip{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:44px;line-height:1}
+.c .court{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:40px;height:56px;border:1.5px solid currentColor;
+ border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:20px;font-weight:800;
+ background:linear-gradient(135deg,#fff 0%,#e8e2cf 100%);line-height:1.1}
+.c .court small{font-size:15px;font-weight:400}
+.c.back{background:repeating-linear-gradient(45deg,#1c4587 0 5px,#2f5da8 5px 10px);border:3px solid #eee}
+.c.sm{width:44px;height:62px}
+.c.sm .corner{font-size:11px;width:11px}.c.sm .corner small{font-size:10px}
+.c.sm .pip{font-size:13px}.c.sm .bigpip{font-size:26px}.c.sm .court{width:26px;height:36px;font-size:13px}.c.sm .court small{font-size:10px}
+.c.playable{cursor:pointer;transform:translateY(-8px);box-shadow:0 6px 10px rgba(0,0,0,.6)}
+.c.playable:hover{outline:2px solid #ffd76a}
+.c.dim{opacity:.45}
+.c.hintcard{outline:3px solid #ffd76a;box-shadow:0 0 14px #ffd76a}
+/* hands */
+.hand{display:flex;align-items:center;justify-content:center}
+#seatS .hand{padding:0 8px}
+#seatS .c{margin-left:-16px}
+#seatS .c:first-child{margin-left:0}
+#seatN .c{margin-left:-24px}
+#seatN .c:first-child{margin-left:0}
+.vfan{display:flex;flex-direction:column;align-items:center}
+.vfan .c{margin-top:-64px}
+.vfan .c:first-child{margin-top:0}
+/* bidding box */
+#bidBox{position:absolute;z-index:30;background:rgba(8,24,18,.95);border:1px solid #2c6b52;border-radius:10px;
+ padding:12px;display:none;box-shadow:0 8px 30px rgba(0,0,0,.7)}
+#bidBox h3{font-size:13px;color:#ffd76a;margin-bottom:8px;text-align:center}
+.brow{display:flex;gap:5px;margin-bottom:5px}
+.bbtn{width:44px;height:32px;border:1px solid #3b7a5e;border-radius:5px;background:#103c2c;color:#eee;font-size:14px;cursor:pointer}
+.bbtn:hover:not(:disabled){background:#1c7355}
+.bbtn:disabled{opacity:.28;cursor:not-allowed}
+.bbtn.red{color:#ff7b93}
+.bbtn.wide{width:62px;font-weight:700}
+#bidHint{margin-top:6px;font-size:12px;color:#ffe9a8;min-height:16px;text-align:center;max-width:260px}
+/* modal */
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:100}
+#modal .box{background:#10261d;border:1px solid #2c6b52;border-radius:12px;padding:22px 28px;min-width:320px;max-width:440px;text-align:center}
+#modal h2{color:#ffd76a;margin-bottom:10px;font-size:20px}
+#modal pre{text-align:left;font-size:13px;font-family:Consolas,monospace;color:#cfe8dc;margin:10px 0;white-space:pre-wrap}
+#modal button{padding:9px 22px;border:0;border-radius:7px;background:#c9a227;color:#111;font-weight:700;font-size:14px;cursor:pointer}
+#testOut{position:fixed;left:8px;bottom:8px;z-index:200;max-width:46vw;max-height:40vh;overflow:auto;background:rgba(0,0,0,.8);
+ border:1px solid #444;border-radius:8px;padding:8px;font:11px Consolas,monospace;display:none;white-space:pre-wrap}
+.pass{color:#7ee787}.fail{color:#ff7b93}
+@media (max-width:900px){#panel{width:210px;font-size:12px}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="table">
+    <div class="seat" id="seatN"><span class="name-tag">North</span><div class="hand" id="handN"></div></div>
+    <div class="seat" id="seatW"><span class="name-tag">West</span><div class="hand" id="handW"></div></div>
+    <div id="center">
+      <div id="contractBanner"></div>
+      <div id="trickArea">
+        <div class="tslot posN" id="tsN"></div>
+        <div class="tslot posE" id="tsE"></div>
+        <div class="tslot posS" id="tsS"></div>
+        <div class="tslot posW" id="tsW"></div>
+      </div>
+      <div id="bidBox"></div>
+      <div id="hintBar"></div>
+    </div>
+    <div class="seat" id="seatE"><span class="name-tag">East</span><div class="hand" id="handE"></div></div>
+    <div class="seat" id="seatS"><span class="name-tag">South (You)</span><div class="hand" id="handS"></div></div>
+  </div>
+  <div id="panel">
+    <div id="statusBox">
+      <div class="row"><span class="lbl">Dealer</span><span id="stDealer">—</span></div>
+      <div class="row"><span class="lbl">Contract</span><span id="stContract">—</span></div>
+      <div class="row"><span class="lbl">Declarer</span><span id="stDeclarer">—</span></div>
+      <div class="row"><span class="lbl">Tricks NS / EW</span><span id="stTricks">0 / 0</span></div>
+      <div class="row"><span class="lbl">Score NS / EW</span><span id="stScore">0 / 0</span></div>
+    </div>
+    <div id="auctionLog"></div>
+    <div id="btnRow">
+      <button id="btnNew">New Deal</button>
+      <button id="btnHints">Hints: ON</button>
+      <button id="btnSound">Sound: ON</button>
+    </div>
+  </div>
+</div>
+<div id="modal"><div class="box"><h2 id="mTitle"></h2><pre id="mBody"></pre><button id="mBtn">Next Deal</button></div></div>
+<div id="testOut"></div>
+<script>
+/* ============================================================
+   PlayBridge — single-file Contract Bridge (I0 intelligence)
+   Logic modules are pure (no DOM) until the UI section.
+   Seats: 0=N, 1=E, 2=S(human), 3=W. Clockwise order N,E,S,W.
+   ============================================================ */
+var SEATS=['N','E','S','W'], HUMAN=2;
+var SUITS=['\u2663','\u2666','\u2665','\u2660'];       // club diamond heart spade
+var RED=[false,true,true,false];
+var STRAINS=['\u2663','\u2666','\u2665','\u2660','NT'];  // + NT for bidding
+var RK='23456789TJQKA';
+function partner(s){return (s+2)%4}
+function nextSeat(s){return (s+1)%4}
+function side(s){return s%2===0?'NS':'EW'}
+function cardStr(c){return RK[c.r-2]+SUITS[c.s]}
+function callStr(c){
+  if(c.t==='pass')return 'Pass';
+  if(c.t==='x')return 'X';
+  if(c.t==='xx')return 'XX';
+  return c.lvl+STRAINS[c.st];
+}
+/* ---------- Deck ---------- */
+function makeDeck(){
+  var d=[],s,r;
+  for(s=0;s<4;s++)for(r=2;r<=14;r++)d.push({s:s,r:r});
+  return d;
+}
+function shuffle(d){
+  for(var i=d.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=d[i];d[i]=d[j];d[j]=t;}
+  return d;
+}
+function sortHand(h){ // display order: spades,hearts,diamonds,clubs; rank desc
+  h.sort(function(a,b){return b.s-a.s||b.r-a.r});
+  return h;
+}
+function deal(){
+  var d=shuffle(makeDeck());
+  var hands=[[],[],[],[]],i;
+  for(i=0;i<52;i++)hands[i%4].push(d[i]); // hands[0]=N,1=E,2=S,3=W
+  return hands;
+}
+/* ---------- Hand evaluation (Level 1: HCP + distribution) ---------- */
+function evalHand(hand){
+  var len=[0,0,0,0],suitHCP=[0,0,0,0],hcp=0,i,c,v;
+  for(i=0;i<hand.length;i++){
+    c=hand[i];len[c.s]++;
+    v=c.r===14?4:c.r===13?3:c.r===12?2:c.r===11?1:0;
+    suitHCP[c.s]+=v;hcp+=v;
+  }
+  var dist=0;
+  for(i=0;i<4;i++)dist+=len[i]===0?3:len[i]===1?2:len[i]===2?1:0;
+  var ls=len.slice().sort(function(a,b){return b-a});
+  var balanced=(ls[0]===4&&ls[1]===3)||(ls[0]===4&&ls[1]===4)||(ls[0]===5&&ls[1]===3&&ls[2]===3);
+  return {hcp:hcp,dist:dist,pts:hcp+dist,len:len,suitHCP:suitHCP,balanced:balanced};
+}
+/* ---------- Auction ---------- */
+// call: {t:'pass'|'bid'|'x'|'xx', lvl, st, seat}
+function bidVal(c){return (c.lvl-1)*5+c.st}
+function lastBid(auction){
+  for(var i=auction.length-1;i>=0;i--)if(auction[i].t==='bid')return auction[i];
+  return null;
+}
+function legalInfo(auction,seat){
+  var hb=lastBid(auction),canX=false,canXX=false,i,c;
+  if(hb){
+    var agg=null; // last x/xx after last bid
+    for(i=auction.length-1;i>=0;i--){
+      c=auction[i];
+      if(c.t==='bid')break;
+      if(c.t==='x'||c.t==='xx'){agg=c;break;}
+    }
+    if(!agg&&side(hb.seat)!==side(seat))canX=true;
+    if(agg&&agg.t==='x'&&side(agg.seat)!==side(seat))canXX=true;
+  }
+  return {highBid:hb,canX:canX,canXX:canXX};
+}
+function cheapestLevel(auction,st){
+  var hb=lastBid(auction),min=hb?bidVal(hb):-1,lvl;
+  for(lvl=1;lvl<=7;lvl++)if((lvl-1)*5+st>min)return lvl;
+  return null;
+}
+function isLegalCall(auction,seat,call){
+  if(call.t==='pass')return true;
+  var info=legalInfo(auction,seat);
+  if(call.t==='x')return info.canX;
+  if(call.t==='xx')return info.canXX;
+  return !info.highBid||bidVal(call)>bidVal(info.highBid);
+}
+function auctionStatus(auction){
+  var cons=0,i,hasBid=false;
+  for(i=auction.length-1;i>=0;i--){
+    if(auction[i].t==='pass')cons++;else break;
+  }
+  for(i=0;i<auction.length;i++)if(auction[i].t==='bid'){hasBid=true;break;}
+  if(!hasBid&&auction.length>=4)return 'passedout';
+  if(hasBid&&cons>=3)return 'complete';
+  return 'ongoing';
+}
+function finalContract(auction){
+  var fb=lastBid(auction),dbl=0,i;
+  if(!fb)return null;
+  for(i=auction.length-1;i>=0;i--){
+    var c=auction[i];
+    if(c.t==='bid')break;
+    if(c.t==='x')dbl=1;
+    if(c.t==='xx')dbl=2;
+  }
+  return {lvl:fb.lvl,st:fb.st,dbl:dbl,bidder:fb.seat};
+}
+function determineDeclarer(auction){
+  var ct=finalContract(auction),i,c;
+  if(!ct)return null;
+  var ps=partner(ct.bidder);
+  for(i=0;i<auction.length;i++){
+    c=auction[i];
+    if(c.t==='bid'&&c.st===ct.st&&(c.seat===ct.bidder||c.seat===ps))return c.seat;
+  }
+  return ct.bidder;
+}
+function lastSuitBidBy(auction,seat){
+  for(var i=auction.length-1;i>=0;i--){
+    var c=auction[i];
+    if(c.t==='bid'&&c.seat===seat&&c.st<4)return c.st;
+  }
+  return null;
+}
+/* ---------- Bidding AI: simplified SAYC (Level 2) ---------- */
+/* Hooks for future conventions (I1): */
+var Conventions={
+  stayman:function(){return null},   // TODO I1
+  jacobyTransfer:function(){return null}, // TODO I1
+  blackwood:function(){return null}   // TODO I1
+};
+function bestSuit(ev,majorsOnly,minLen){
+  var order=[3,2,1,0],best=-1,bl=minLen-1,i,s;
+  for(i=0;i<4;i++){
+    s=order[i];
+    if(majorsOnly&&s<2)continue;
+    if(ev.len[s]>bl||(ev.len[s]===bl&&best>=0&&s>best&&ev.len[s]===ev.len[best])){best=s;bl=ev.len[s];}
+  }
+  return best>=0?best:null;
+}
+function gameLevel(st){return st===4?3:st>=2?4:5} // 3NT / 4 of major / 5 of minor
+function mkBid(auction,st,lvlWanted,reason){
+  var lvl=cheapestLevel(auction,st);
+  if(lvl===null)return null;
+  if(lvlWanted){
+    if(lvlWanted>7||lvl>lvlWanted)return null; // must be exactly this level; never climb past it
+    lvl=lvlWanted;
+  }
+  return {t:'bid',lvl:lvl,st:st,reason:reason};
+}
+function suggestBid(hand,auction,seat){
+  var ev=evalHand(hand),pts=ev.pts,h=ev.hcp,i,c;
+  function pass(r){return {t:'pass',reason:r}}
+  var myBids=[],pBids=[],oppBids=[];
+  for(i=0;i<auction.length;i++){
+    c=auction[i];
+    if(c.t!=='bid')continue;
+    if(c.seat===seat)myBids.push(c);
+    else if(c.seat===partner(seat))pBids.push(c);
+    else oppBids.push(c);
+  }
+  var b,p,firstBid=null;
+  for(i=0;i<auction.length;i++)if(auction[i].t==='bid'){firstBid=auction[i];break;}
+  /* --- OPENING (no one has bid) --- */
+  if(myBids.length===0&&pBids.length===0&&oppBids.length===0){
+    if(pts<12)return pass('Fewer than 12 points — not enough to open');
+    if(h>=22)return mkBid(auction,0,2,'22+ points — strong 2'+STRAINS[0])||pass('Fallback');
+    if(h>=15&&h<=17&&ev.balanced)return mkBid(auction,4,1,'15–17 HCP, balanced — open 1NT');
+    if(h>=20&&h<=21&&ev.balanced)return mkBid(auction,4,2,'20–21 HCP, balanced — open 2NT');
+    var s5=bestSuit(ev,true,5);
+    if(s5!==null)return mkBid(auction,s5,1,pts+' pts, '+ev.len[s5]+'-card major — open 1'+STRAINS[s5]);
+    var sm=bestSuit(ev,false,3);
+    if(ev.len[0]===3&&ev.len[1]===3)sm=0; // SAYC: 3-3 minors open 1 club
+    if(sm!==null)return mkBid(auction,sm,1,pts+' pts, longest suit — open 1'+STRAINS[sm]);
+    return pass('No biddable suit — fallback pass');
+  }
+  /* --- OVERCALL (opponents bid, partner silent) --- */
+  if(myBids.length===0&&pBids.length===0&&oppBids.length>0){
+    if(pts>=10){
+      var so=bestSuit(ev,false,5);
+      if(so!==null&&ev.suitHCP[so]>=3){
+        var lo=cheapestLevel(auction,so);
+        if(lo!==null&&lo<=2)return mkBid(auction,so,lo,'Overcall: '+pts+' pts, good '+ev.len[so]+'-card suit');
+      }
+    }
+    return pass('No sound overcall (need 10+ pts and a good 5-card suit)');
+  }
+  /* --- RESPONDING to partner's opening --- */
+  if(myBids.length===0&&pBids.length>0){
+    p=pBids[pBids.length-1];
+    // partner opened 2C (strong, opening bid only)
+    if(p.lvl===2&&p.st===0&&firstBid===p){
+      if(pts>=8){
+        var sp=bestSuit(ev,false,5),mp;
+        if(sp!==null){mp=mkBid(auction,sp,null,'8+ pts — positive response');if(mp)return mp;}
+        mp=mkBid(auction,4,null,'8+ pts — positive NT');if(mp)return mp;
+        return pass('Fallback — no legal positive');
+      }
+      return mkBid(auction,1,null,'0–7 pts — 2'+STRAINS[1]+' waiting')||pass('Fallback');
+    }
+    // partner opened NT
+    if(p.st===4){
+      if(p.lvl===1){
+        if(pts<=7)return pass('0–7 pts opposite 1NT — pass');
+        var mbn;
+        if(pts<=9){mbn=mkBid(auction,4,2,'8–9 pts — invite game with 2NT');if(mbn)return mbn;}
+        else{mbn=mkBid(auction,4,3,'10+ pts opposite 15–17 — bid 3NT');if(mbn)return mbn;}
+        return pass('No legal NT call — fallback pass');
+      }
+      if(p.lvl===2){
+        if(pts>=4){var mb2=mkBid(auction,4,3,'4+ pts opposite 20–21 — bid 3NT');if(mb2)return mb2;}
+        return pass('0–3 pts — pass');
+      }
+    }
+    // partner opened a suit
+    var sup=ev.len[p.st],maj=p.st>=2,lvl;
+    if(pts<6)return pass('Fewer than 6 points — pass');
+    if(pts<=9){
+      if(sup>=3&&cheapestLevel(auction,p.st)===p.lvl+1)
+        return mkBid(auction,p.st,p.lvl+1,'6–9 pts, '+sup+'-card support — raise partner');
+      lvl=cheapestLevel(auction,4);
+      if(lvl!==null&&lvl<=2)return mkBid(auction,4,lvl,'6–9 pts, no fit — '+lvl+'NT');
+      return pass('Too weak to advance — fallback pass');
+    }
+    // 10+
+    if(maj&&sup>=3){
+      if(pts>=13){
+        var mg=mkBid(auction,p.st,4,'13+ pts with support — bid game');
+        if(mg)return mg;
+        return pass('Game out of reach — fallback pass');
+      }
+      return mkBid(auction,p.st,p.lvl+1,'10–12 pts, support — raise')||pass('Fallback');
+    }
+    var sn=-1,sl=3;
+    for(i=3;i>=0;i--)if(i!==p.st&&ev.len[i]>sl){sn=i;sl=ev.len[i];}
+    if(sn>=0){
+      lvl=cheapestLevel(auction,sn);
+      if(lvl!==null&&lvl<=2)return mkBid(auction,sn,lvl,'10+ pts — bid new suit '+STRAINS[sn]);
+    }
+    lvl=cheapestLevel(auction,4);
+    if(lvl!==null&&lvl<=3&&ev.balanced)return mkBid(auction,4,lvl,'10+ pts, balanced — '+lvl+'NT');
+    if(sup>=3)return mkBid(auction,p.st,p.lvl+1,'Support — raise partner')||pass('Fallback');
+    return pass('No good advance — fallback pass');
+  }
+  /* --- REBID (I have bid before) --- */
+  if(myBids.length>0){
+    var my0=myBids[0];
+    // after my strong 2C opening (opening bid only, not an overcall)
+    if(my0.lvl===2&&my0.st===0&&firstBid===my0){
+      var pb=pBids[pBids.length-1],mb;
+      if(pb&&pb.st<4&&!(pb.lvl===2&&pb.st===1)&&ev.len[pb.st]>=4&&pb.lvl<gameLevel(pb.st)){
+        mb=mkBid(auction,pb.st,pb.lvl+1,'Strong — raise partner\u2019s positive');
+        if(mb)return mb;
+      }
+      if(ev.balanced){
+        mb=mkBid(auction,4,h>=25?3:null,h>=25?'25+ HCP balanced — 3NT':'22–24 balanced — NT');
+        if(mb)return mb;
+      }
+      var ss=bestSuit(ev,false,5);
+      if(ss!==null){mb=mkBid(auction,ss,null,'Strong hand — show '+STRAINS[ss]);if(mb)return mb;}
+      mb=mkBid(auction,4,3,'Strong hand — 3NT');if(mb)return mb;
+      return pass('Fallback');
+    }
+    p=pBids.length?pBids[pBids.length-1]:null;
+    if(!p)return pass('Partner silent — fallback pass');
+    // partner raised my suit
+    if(p.st===my0.st&&p.st<4){
+      if(p.st>=2){ // major
+        if(pts>=17){var mag=mkBid(auction,p.st,4,'17+ pts — accept game');if(mag)return mag;}
+        if(pts>=15&&p.lvl===2){var mi=mkBid(auction,p.st,3,'15–16 pts — invite game');if(mi)return mi;}
+        return pass('Minimum opener — pass');
+      }
+      if(ev.balanced&&h>=15){var m3n=mkBid(auction,4,3,'Minor fit, 15+ balanced — try 3NT');if(m3n)return m3n;}
+      return pass('Minimum opener — pass');
+    }
+    // partner bid NT
+    if(p.st===4){
+      if(p.lvl===2&&my0.st===4&&my0.lvl===1){
+        if(h>=16){var ma=mkBid(auction,4,3,'16–17 HCP — accept game invite');if(ma)return ma;}
+        return pass('15 HCP minimum — decline invite');
+      }
+      if(h>=18){var m3b=mkBid(auction,4,3,'18+ HCP — bid 3NT');if(m3b)return m3b;}
+      return pass('No extra values — pass');
+    }
+    // partner bid a new suit
+    if(ev.len[p.st]>=4){
+      if(p.lvl>=gameLevel(p.st))return pass('Game already reached — pass');
+      return mkBid(auction,p.st,p.lvl+1,'4-card support for partner — raise')||pass('Fallback');
+    }
+    if(ev.len[my0.st]>=6){
+      var lr=cheapestLevel(auction,my0.st);
+      if(lr!==null&&lr<=3)return mkBid(auction,my0.st,lr,'6-card suit — rebid it');
+    }
+    if(ev.balanced&&h>=15&&h<=17){
+      var ln=cheapestLevel(auction,4);
+      if(ln!==null&&ln<=2)return mkBid(auction,4,ln,'15–17 balanced — '+ln+'NT');
+    }
+    return pass('No clear rebid — fallback pass');
+  }
+  return pass('Fallback pass');
+}
+/* ---------- Scoring (duplicate-style, not vulnerable) ---------- */
+function trickValue(st){return st<2?20:30}
+function scoreContract(ct,declarer,tricksDecl){
+  var need=6+ct.lvl,got=tricksDecl,over=got-need,tv=trickValue(ct.st),lines=[],pts,sideWon;
+  function baseTrickScore(){
+    var v=ct.st===4?ct.lvl*30+10:ct.lvl*tv;
+    return v*(ct.dbl===1?2:ct.dbl===2?4:1);
+  }
+  if(over>=0){
+    var base=baseTrickScore();
+    var bonus=base>=100?300:50;
+    var ot=0;
+    if(over>0){
+      if(ct.dbl===0)ot=over*(ct.st===4?30:tv);
+      else if(ct.dbl===1)ot=over*100;
+      else ot=over*200;
+    }
+    var insult=ct.dbl===1?50:ct.dbl===2?100:0;
+    pts=base+bonus+ot+insult;sideWon=side(declarer);
+    lines.push('Contract: '+ct.lvl+STRAINS[ct.st]+(ct.dbl===1?' X':ct.dbl===2?' XX':'')+' by '+SEATS[declarer]);
+    lines.push('Result: MADE '+(over>0?'+'+over:'exactly'));
+    lines.push('Trick score: '+base+(ct.dbl?' (x'+(ct.dbl===1?2:4)+')':''));
+    lines.push((base>=100?'Game bonus: ':'Part-score bonus: ')+bonus);
+    if(ot)lines.push('Overtricks: '+ot);
+    if(insult)lines.push('Insult bonus: '+insult);
+    lines.push(sideWon+' scores '+pts);
+  }else{
+    var down=-over,pen;
+    if(ct.dbl===0)pen=down*50;
+    else{
+      pen=down===1?100:down===2?300:500+(down-3)*300; // non-vul doubled: 100/300/500/800...
+      if(ct.dbl===2)pen*=2;
+    }
+    pts=pen;sideWon=side(partner(declarer))==='NS'?'EW':'NS';
+    lines.push('Contract: '+ct.lvl+STRAINS[ct.st]+(ct.dbl===1?' X':ct.dbl===2?' XX':'')+' by '+SEATS[declarer]);
+    lines.push('Result: DOWN '+down);
+    lines.push('Penalty: '+pen);
+    lines.push(sideWon+' scores '+pts);
+  }
+  return {points:pts,side:sideWon,lines:lines};
+}
+/* ---------- Play engine (rule-based heuristics, I0) ---------- */
+function lowest(cards){var m=cards[0];for(var i=1;i<cards.length;i++)if(cards[i].r<m.r)m=cards[i];return m}
+function highest(cards){var m=cards[0];for(var i=1;i<cards.length;i++)if(cards[i].r>m.r)m=cards[i];return m}
+function minAbove(cards,rank){var best=null;for(var i=0;i<cards.length;i++)if(cards[i].r>rank&&(!best||cards[i].r<best.r))best=cards[i];return best}
+function ofSuit(hand,s){var out=[];for(var i=0;i<hand.length;i++)if(hand[i].s===s)out.push(hand[i]);return out}
+function validCards(hand,ledSuit){
+  if(ledSuit===null||ledSuit===undefined)return hand.slice();
+  var f=ofSuit(hand,ledSuit);
+  return f.length?f:hand.slice();
+}
+function trickWinner(trick,trump){
+  var best=trick[0],i;
+  for(i=1;i<trick.length;i++){
+    var t=trick[i],bc=best.card,cc=t.card,led=trick[0].card.s;
+    if(trump!==null&&trump!==undefined){
+      if(cc.s===trump&&bc.s!==trump){best=t;continue}
+      if(cc.s===trump&&bc.s===trump&&cc.r>bc.r){best=t;continue}
+      if(bc.s===trump)continue;
+    }
+    if(cc.s===led&&bc.s!==led){best=t;continue}
+    if(cc.s===bc.s&&cc.r>bc.r)best=t;
+  }
+  return best;
+}
+function discardChoice(hand,trump){
+  var ev=evalHand(hand),s,bestS=-1,bestLen=99,bestH=99;
+  for(s=0;s<4;s++){
+    if(s===trump||ev.len[s]===0)continue;
+    if(ev.len[s]<bestLen||(ev.len[s]===bestLen&&ev.suitHCP[s]<bestH)){bestS=s;bestLen=ev.len[s];bestH=ev.suitHCP[s];}
+  }
+  return bestS<0?lowest(hand):lowest(ofSuit(hand,bestS));
+}
+function seqTop(cards){ // top of touching honors (2+ consecutive, top is an honor)
+  var s=cards.slice().sort(function(a,b){return b.r-a.r});
+  if(s.length>=2&&s[0].r>=11&&s[0].r-s[1].r===1)return s[0];
+  return null;
+}
+function fourthBest(cards){
+  var s=cards.slice().sort(function(a,b){return b.r-a.r});
+  return s.length>=4?s[3]:s[s.length-1];
+}
+function choosePlay(G,seat){
+  var hand=G.hands[seat],trick=G.trick,i,s,cards;
+  var trump=(G.contract&&G.contract.st<4)?G.contract.st:null;
+  var decl=G.declarer,declSide=(seat===decl||seat===partner(decl));
+  var ledSuit=trick.length?trick[0].card.s:null;
+  function ret(card,reason){return {card:card,reason:reason}}
+  /* --- LEAD (first card of trick) --- */
+  if(trick.length===0){
+    if(!declSide){
+      var ps=lastSuitBidBy(G.auction,partner(seat));
+      if(ps!==null&&ofSuit(hand,ps).length){
+        cards=ofSuit(hand,ps);
+        var sq=seqTop(cards);
+        return ret(sq||fourthBest(cards),sq?'Lead partner\u2019s suit — top of touching honors':'Lead partner\u2019s suit — fourth-best');
+      }
+      for(s=3;s>=0;s--){
+        if(s===trump)continue;
+        var sq2=seqTop(ofSuit(hand,s));
+        if(sq2)return ret(sq2,'Top of touching honors');
+      }
+      var bs=-1,bl=0;
+      for(s=0;s<4;s++){if(s===trump)continue;var l=ofSuit(hand,s).length;if(l>bl){bl=l;bs=s}}
+      if(bs>=0)return ret(fourthBest(ofSuit(hand,bs)),'Fourth-best from longest suit');
+      return ret(lowest(hand),'Only trumps left — lead low');
+    }
+    if(seat===decl&&trump!==null&&ofSuit(hand,trump).length>=2)
+      return ret(highest(ofSuit(hand,trump)),'Draw trumps');
+    for(s=3;s>=0;s--){
+      cards=ofSuit(hand,s);
+      for(i=0;i<cards.length;i++)if(cards[i].r===14)return ret(cards[i],'Cash winners (Ace)');
+    }
+    for(s=3;s>=0;s--){
+      cards=ofSuit(hand,s);
+      var hasA=false,k=null,j;
+      for(j=0;j<cards.length;j++){if(cards[j].r===14)hasA=true;if(cards[j].r===13)k=cards[j];}
+      if(hasA&&k)return ret(k,'Cash winners (King)');
+    }
+    var bs2=-1,bl2=0;
+    for(s=0;s<4;s++){if(s===trump)continue;var l2=ofSuit(hand,s).length;if(l2>bl2){bl2=l2;bs2=s}}
+    if(bs2>=0)return ret(fourthBest(ofSuit(hand,bs2)),'Develop long suit — fourth-best');
+    return ret(lowest(hand),'Lead low');
+  }
+  /* --- FOLLOW --- */
+  var valid=validCards(hand,ledSuit);
+  var canFollow=ofSuit(hand,ledSuit).length>0;
+  var win=trickWinner(trick,trump);
+  var pWinning=(win.seat===partner(seat));
+  if(!canFollow){
+    if(!pWinning&&trump!==null){
+      var tr=ofSuit(hand,trump);
+      if(tr.length){
+        var maxT=-1;
+        for(i=0;i<trick.length;i++)if(trick[i].card.s===trump&&trick[i].card.r>maxT)maxT=trick[i].card.r;
+        if(maxT<0)return ret(lowest(tr),'Ruff (trump in)');
+        var ov=minAbove(tr,maxT);
+        if(ov)return ret(ov,'Overruff');
+      }
+    }
+    return ret(discardChoice(hand,trump),pWinning?'Partner winning — discard weakest suit':'Cannot win — discard weakest suit');
+  }
+  var pos=trick.length; // 1=second hand, 2=third, 3=fourth
+  if(pos===1){
+    var ledCard=trick[0].card;
+    if(ledCard.r>=11){
+      var cov=minAbove(valid,ledCard.r);
+      if(cov)return ret(cov,'Cover an honor with an honor');
+    }
+    return ret(lowest(valid),'Second hand low');
+  }
+  if(pos===2){
+    if(pWinning)return ret(lowest(valid),'Partner winning — play low');
+    if(win.card.s===trump)return ret(lowest(valid),'Cannot beat the trump — play low');
+    var third=minAbove(valid,win.card.r);
+    if(third)return ret(third,'Third hand high');
+    return ret(lowest(valid),'Cannot win — play low');
+  }
+  if(pWinning)return ret(lowest(valid),'Partner\u2019s trick — win cheaply, play low');
+  if(win.card.s===trump)return ret(lowest(valid),'Cannot beat the trump — play low');
+  var fourth=minAbove(valid,win.card.r);
+  if(fourth)return ret(fourth,'Win the trick — cheapest card');
+  return ret(lowest(valid),'Cannot win — play low');
+}
+/* ---------- Game state & flow ---------- */
+var G=null;
+var UI={hints:true,sound:true};
+function loadScore(){try{return JSON.parse(localStorage.getItem('pb_score'))||{NS:0,EW:0,deals:0}}catch(e){return {NS:0,EW:0,deals:0}}}
+function saveScore(){try{localStorage.setItem('pb_score',JSON.stringify(SCORE))}catch(e){}}
+var SCORE=loadScore();
+function newDeal(){
+  G={
+    token:(G?G.token:0)+1,
+    phase:'AUCTION',
+    hands:deal(),
+    dealer:SCORE.deals%4,
+    auction:[],aTurn:null,
+    contract:null,declarer:null,dummy:null,
+    trick:[],lead:null,pTurn:null,
+    tricksNS:0,tricksEW:0,trickNo:1,
+    dummyRevealed:false
+  };
+  var i;
+  for(i=0;i<4;i++)sortHand(G.hands[i]);
+  G.aTurn=G.dealer;
+  SCORE.deals++;saveScore();
+  hideModal();
+  renderAll();
+  maybeAI();
+}
+function schedule(fn,ms){
+  var tok=G.token;
+  setTimeout(function(){if(G&&G.token===tok)fn();},ms);
+}
+function humanActsNow(){
+  if(!G||G.phase!=='PLAY')return false;
+  var seat=G.pTurn;
+  if(seat===HUMAN&&G.dummy!==HUMAN)return true;
+  if(seat===G.dummy&&G.declarer===HUMAN)return true;
+  return false;
+}
+function maybeAI(){
+  if(!G)return;
+  if(G.phase==='AUCTION'){
+    if(auctionStatus(G.auction)!=='ongoing'){finishAuction();return}
+    if(G.aTurn!==HUMAN)schedule(aiBid,650);
+  }else if(G.phase==='PLAY'){
+    if(G.pTurn===null||G.pTurn===undefined)return; // trick being resolved
+    if(!humanActsNow())schedule(aiPlay,750);
+  }
+}
+function aiBid(){
+  if(!G||G.phase!=='AUCTION')return;
+  var s=suggestBid(G.hands[G.aTurn],G.auction,G.aTurn)||{t:'pass'};
+  var call={t:s.t,lvl:s.lvl,st:s.st};
+  if(!isLegalCall(G.auction,G.aTurn,call))call={t:'pass'}; // safety net
+  applyCall(call);
+}
+function aiPlay(){
+  if(!G||G.phase!=='PLAY'||G.pTurn===null||G.pTurn===undefined||humanActsNow())return;
+  var seat=G.pTurn,ch=choosePlay(G,seat);
+  applyPlay(seat,ch.card);
+}
+function applyCall(call){
+  call.seat=G.aTurn;
+  G.auction.push(call);
+  G.aTurn=nextSeat(G.aTurn);
+  renderAll();
+  if(auctionStatus(G.auction)==='ongoing')maybeAI();
+  else finishAuction();
+}
+function finishAuction(){
+  if(auctionStatus(G.auction)==='passedout'){
+    G.phase='SCORE';
+    renderAll();
+    showModal('Passed Out','All four players passed.\nNo score — redeal.');
+    return;
+  }
+  G.contract=finalContract(G.auction);
+  G.declarer=determineDeclarer(G.auction);
+  G.dummy=partner(G.declarer);
+  G.phase='PLAY';
+  G.lead=nextSeat(G.declarer);
+  G.pTurn=G.lead;
+  renderAll();
+  maybeAI();
+}
+function applyPlay(seat,card){
+  var h=G.hands[seat],idx=-1,i;
+  for(i=0;i<h.length;i++)if(h[i].s===card.s&&h[i].r===card.r){idx=i;break;}
+  if(idx<0)return;
+  h.splice(idx,1);
+  G.trick.push({seat:seat,card:card});
+  if(G.trickNo===1&&G.trick.length===1)G.dummyRevealed=true; // reveal dummy after opening lead
+  if(G.trick.length===4){
+    G.pTurn=null;
+    renderAll();
+    schedule(finishTrick,1100);
+  }else{
+    G.pTurn=nextSeat(seat);
+    renderAll();
+    maybeAI();
+  }
+}
+function finishTrick(){
+  var trump=G.contract.st<4?G.contract.st:null;
+  var win=trickWinner(G.trick,trump);
+  if(side(win.seat)==='NS')G.tricksNS++;else G.tricksEW++;
+  G.trick=[];G.lead=win.seat;G.pTurn=win.seat;G.trickNo++;
+  if(G.trickNo>13){finishPlay();return}
+  renderAll();
+  maybeAI();
+}
+function finishPlay(){
+  G.phase='SCORE';
+  var tricksDecl=side(G.declarer)==='NS'?G.tricksNS:G.tricksEW;
+  var res=scoreContract(G.contract,G.declarer,tricksDecl);
+  SCORE[res.side]+=res.points;
+  saveScore();
+  renderAll();
+  showModal('Deal Complete — '+res.side+' +'+res.points,res.lines.join('\n'));
+}
+/* ---------- Audio: Web Audio synth pad (no audio files) ---------- */
+var AU={ctx:null,master:null,started:false};
+function audioStart(){
+  if(AU.started)return;
+  var AC=(typeof window!=='undefined')&&(window.AudioContext||window.webkitAudioContext);
+  if(!AC)return;
+  try{
+    AU.ctx=new AC();
+    AU.master=AU.ctx.createGain();
+    AU.master.gain.value=UI.sound?0.045:0;
+    var filt=AU.ctx.createBiquadFilter();filt.type='lowpass';filt.frequency.value=650;
+    AU.master.connect(filt);filt.connect(AU.ctx.destination);
+    var freqs=[196,246.94,293.66],i;
+    for(i=0;i<freqs.length;i++){
+      var o=AU.ctx.createOscillator();o.type='sine';o.frequency.value=freqs[i];o.detune.value=(i-1)*4;
+      var g=AU.ctx.createGain();g.gain.value=0.33;
+      o.connect(g);g.connect(AU.master);o.start();
+    }
+    var lfo=AU.ctx.createOscillator();lfo.frequency.value=0.08;
+    var lg=AU.ctx.createGain();lg.gain.value=0.018;
+    lfo.connect(lg);lg.connect(AU.master.gain);lfo.start();
+    AU.started=true;
+  }catch(e){}
+}
+function audioToggle(){
+  UI.sound=!UI.sound;
+  if(AU.master)AU.master.gain.value=UI.sound?0.045:0;
+}
+/* ================= UI (DOM lives only below this line) ================= */
+function el(id){return document.getElementById(id)}
+var PIP_POS={
+ 2:[[50,18],[50,82]],
+ 3:[[50,18],[50,50],[50,82]],
+ 4:[[30,18],[70,18],[30,82],[70,82]],
+ 5:[[30,18],[70,18],[50,50],[30,82],[70,82]],
+ 6:[[30,18],[70,18],[30,50],[70,50],[30,82],[70,82]],
+ 7:[[30,18],[70,18],[50,34],[30,50],[70,50],[30,82],[70,82]],
+ 8:[[30,18],[70,18],[50,34],[30,50],[70,50],[50,66],[30,82],[70,82]],
+ 9:[[30,16],[70,16],[30,39],[70,39],[50,50],[30,61],[70,61],[30,84],[70,84]],
+ 10:[[30,16],[70,16],[50,28],[30,39],[70,39],[30,61],[70,61],[50,72],[30,84],[70,84]]
+};
+function cardEl(card,small){
+  var d=document.createElement('div');
+  d.className='c'+(RED[card.s]?' red':'')+(small?' sm':'');
+  var idx='<div class="corner tl">'+RK[card.r-2]+'<small>'+SUITS[card.s]+'</small></div>'+
+          '<div class="corner br">'+RK[card.r-2]+'<small>'+SUITS[card.s]+'</small></div>';
+  var mid='',i;
+  if(card.r>=11&&card.r<=13){
+    mid='<div class="court">'+RK[card.r-2]+'<small>'+SUITS[card.s]+'</small></div>';
+  }else if(card.r===14){
+    mid='<div class="bigpip">'+SUITS[card.s]+'</div>';
+  }else{
+    var pos=PIP_POS[card.r]||[];
+    for(i=0;i<pos.length;i++)
+      mid+='<span class="pip'+(pos[i][1]>50?' flip':'')+'" style="left:'+pos[i][0]+'%;top:'+pos[i][1]+'%">'+SUITS[card.s]+'</span>';
+  }
+  d.innerHTML=idx+mid;
+  return d;
+}
+function backEl(small){
+  var d=document.createElement('div');
+  d.className='c back'+(small?' sm':'');
+  return d;
+}
+function renderHands(){
+  var seatIds=['handN','handE','handS','handW'];
+  for(var seat=0;seat<4;seat++){
+    var box=el(seatIds[seat]);
+    box.innerHTML='';
+    var hand=G.hands[seat];
+    var faceUp=(seat===HUMAN)||(G.dummyRevealed&&seat===G.dummy);
+    var acting=G.phase==='PLAY'&&humanActsNow()&&G.pTurn===seat;
+    var ledSuit=G.trick.length?G.trick[0].card.s:null;
+    var valid=acting?validCards(hand,ledSuit):[];
+    var hintCard=(acting&&UI.hints)?choosePlay(G,seat).card:null;
+    var i,d;
+    if(!faceUp){
+      if(seat===1||seat===3){
+        box.className='hand vfan';
+        for(i=0;i<hand.length;i++){d=backEl(true);d.style.marginTop=i?'-46px':'0';box.appendChild(d);}
+      }else{
+        box.className='hand';
+        for(i=0;i<hand.length;i++)box.appendChild(backEl(true));
+      }
+      continue;
+    }
+    sortHand(hand);
+    var vertical=(seat===1||seat===3);
+    var small=(seat!==HUMAN);
+    box.className=vertical?'hand vfan':'hand';
+    for(i=0;i<hand.length;i++){
+      var c=hand[i];
+      d=cardEl(c,small);
+      if(vertical)d.style.marginTop=i?'-46px':'0';
+      if(acting){
+        if(valid.indexOf(c)>=0){
+          d.classList.add('playable');
+          (function(dd,cc){dd.addEventListener('click',function(){onHumanCard(seat,cc);});})(d,c);
+        }else d.classList.add('dim');
+        if(hintCard&&c.s===hintCard.s&&c.r===hintCard.r)d.classList.add('hintcard');
+      }
+      box.appendChild(d);
+    }
+  }
+}
+function renderTrick(){
+  var map=['tsN','tsE','tsS','tsW'];
+  for(var s=0;s<4;s++){
+    var slot=el(map[s]);
+    slot.innerHTML='';
+    for(var i=0;i<G.trick.length;i++)
+      if(G.trick[i].seat===s)slot.appendChild(cardEl(G.trick[i].card,false));
+  }
+}
+function renderPanel(){
+  el('stDealer').textContent=SEATS[G.dealer];
+  el('stContract').textContent=G.contract?
+    G.contract.lvl+STRAINS[G.contract.st]+(G.contract.dbl===1?' X':G.contract.dbl===2?' XX':''):'—';
+  el('stDeclarer').textContent=G.declarer===null?'—':SEATS[G.declarer];
+  el('stTricks').textContent=G.tricksNS+' / '+G.tricksEW;
+  el('stScore').textContent=SCORE.NS+' / '+SCORE.EW;
+}
+function renderAuctionLog(){
+  var box=el('auctionLog');
+  var colOf={3:0,0:1,1:2,2:3}; // display columns: W,N,E,S
+  var html='<table><tr><th>W</th><th>N</th><th>E</th><th>S</th></tr>';
+  var col=colOf[G.dealer],row=['','','',''],i;
+  function flush(){html+='<tr><td>'+row.join('</td><td>')+'</td></tr>';row=['','','',''];}
+  for(i=0;i<G.auction.length;i++){
+    row[col]=callStr(G.auction[i]);
+    col=(col+1)%4;
+    if(col===0)flush();
+  }
+  if(row.join('')!=='')flush();
+  box.innerHTML=html+'</table>';
+  box.scrollTop=box.scrollHeight;
+}
+function renderBidBox(){
+  var box=el('bidBox');
+  if(G.phase!=='AUCTION'){box.style.display='none';return;}
+  box.style.display='block';
+  var info=legalInfo(G.auction,HUMAN);
+  var myTurn=G.aTurn===HUMAN;
+  var h='<h3>Bidding Box'+(myTurn?' — your call':' — waiting\u2026')+'</h3>';
+  for(var lvl=1;lvl<=7;lvl++){
+    h+='<div class="brow"><span style="width:14px;color:#9fc4b4;font-size:12px;line-height:32px">'+lvl+'</span>';
+    for(var st=0;st<5;st++){
+      var ok=myTurn&&isLegalCall(G.auction,HUMAN,{t:'bid',lvl:lvl,st:st});
+      h+='<button class="bbtn'+(st===1||st===2?' red':'')+'" data-lvl="'+lvl+'" data-st="'+st+'"'+(ok?'':' disabled')+'>'+STRAINS[st]+'</button>';
+    }
+    h+='</div>';
+  }
+  h+='<div class="brow" style="justify-content:center">';
+  h+='<button class="bbtn wide" data-act="pass"'+(myTurn?'':' disabled')+'>Pass</button>';
+  h+='<button class="bbtn wide red" data-act="x"'+((myTurn&&info.canX)?'':' disabled')+'>X</button>';
+  h+='<button class="bbtn wide red" data-act="xx"'+((myTurn&&info.canXX)?'':' disabled')+'>XX</button>';
+  h+='</div><div id="bidHint"></div>';
+  box.innerHTML=h;
+  var btns=box.querySelectorAll('button'),i;
+  for(i=0;i<btns.length;i++)btns[i].addEventListener('click',onBidClick);
+  var hint=el('bidHint');
+  if(myTurn&&UI.hints){
+    var s=suggestBid(G.hands[HUMAN],G.auction,HUMAN)||{t:'pass',reason:'No clear call'};
+    hint.textContent='Hint: '+(s.t==='pass'?'Pass':s.t==='x'?'Double':s.t==='xx'?'Redouble':s.lvl+STRAINS[s.st])+' — '+s.reason;
+  }
+}
+function renderHint(){
+  var bar=el('hintBar');
+  if(G.phase==='PLAY'&&UI.hints&&humanActsNow()){
+    var seat=G.pTurn;
+    var ch=choosePlay(G,seat);
+    bar.textContent='Hint ('+(seat===HUMAN?'your hand':'dummy')+'): play '+cardStr(ch.card)+' — '+ch.reason;
+    bar.style.display='block';
+  }else bar.style.display='none';
+}
+function renderBanner(){
+  var b=el('contractBanner');
+  if(G.phase!=='AUCTION'&&G.contract){
+    b.textContent=G.contract.lvl+STRAINS[G.contract.st]+(G.contract.dbl===1?' X':G.contract.dbl===2?' XX':'')+
+      ' — Declarer: '+SEATS[G.declarer];
+    b.style.display='block';
+  }else b.style.display='none';
+}
+function renderAll(){
+  if(!G||typeof document==='undefined')return;
+  renderHands();renderTrick();renderPanel();renderAuctionLog();renderBidBox();renderHint();renderBanner();
+  for(var s=0;s<4;s++){
+    var tag=el('seat'+SEATS[s]).querySelector('.name-tag');
+    var on=(G.phase==='AUCTION'&&G.aTurn===s)||(G.phase==='PLAY'&&G.pTurn===s);
+    var label=s===HUMAN?'South (You)':SEATS[s]==='N'?'North':SEATS[s]==='E'?'East':'West';
+    if(G.dummyRevealed&&G.dummy===s)label+=' (Dummy)';
+    if(G.declarer===s&&G.phase!=='AUCTION')label+=' \u2605';
+    tag.innerHTML=label+(on?'<span class="turn"></span>':'');
+  }
+}
+function showModal(title,body){
+  el('mTitle').textContent=title;
+  el('mBody').textContent=body;
+  el('modal').style.display='flex';
+}
+function hideModal(){
+  if(typeof document!=='undefined'&&el('modal'))el('modal').style.display='none';
+}
+function onHumanCard(seat,card){
+  if(!humanActsNow()||G.pTurn!==seat)return;
+  var ledSuit=G.trick.length?G.trick[0].card.s:null;
+  if(validCards(G.hands[seat],ledSuit).indexOf(card)<0)return; // must follow suit
+  audioStart();
+  applyPlay(seat,card);
+}
+function onBidClick(e){
+  var b=e.currentTarget;
+  if(!G||G.phase!=='AUCTION'||G.aTurn!==HUMAN)return;
+  var call;
+  if(b.dataset.act)call={t:b.dataset.act};
+  else call={t:'bid',lvl:+b.dataset.lvl,st:+b.dataset.st};
+  if(!isLegalCall(G.auction,HUMAN,call))return;
+  audioStart();
+  applyCall(call);
+}
+function init(){
+  el('btnNew').addEventListener('click',function(){audioStart();newDeal();});
+  el('btnHints').addEventListener('click',function(){
+    UI.hints=!UI.hints;
+    this.textContent='Hints: '+(UI.hints?'ON':'OFF');
+    this.classList.toggle('on',UI.hints);
+    renderAll();
+  });
+  el('btnSound').addEventListener('click',function(){
+    audioStart();audioToggle();
+    this.textContent='Sound: '+(UI.sound?'ON':'OFF');
+    this.classList.toggle('on',UI.sound);
+  });
+  el('mBtn').addEventListener('click',function(){hideModal();newDeal();});
+  document.addEventListener('pointerdown',audioStart,{once:true});
+  el('btnHints').classList.add('on');
+  el('btnSound').classList.add('on');
+  newDeal();
+}
+/* ================= Correctness harness ================= */
+function mkHand(arr){var h=[];for(var i=0;i<arr.length;i++)h.push({s:arr[i][0],r:arr[i][1]});return h}
+function auc(spec){ // e.g. "N:1H E:P S:4H W:P" ; X=double, R=redouble, strains C D H S N
+  var sm={C:0,D:1,H:2,S:3,N:4},out=[],parts=spec.split(/\s+/),i;
+  for(i=0;i<parts.length;i++){
+    var seg=parts[i].split(':'),v=seg[1],call;
+    if(v==='P')call={t:'pass'};
+    else if(v==='X')call={t:'x'};
+    else if(v==='R')call={t:'xx'};
+    else call={t:'bid',lvl:+v.charAt(0),st:sm[v.charAt(1)]};
+    call.seat=SEATS.indexOf(seg[0]);
+    out.push(call);
+  }
+  return out;
+}
+function fakeG(o){
+  return {hands:o.hands,trick:o.trick||[],contract:o.contract||{lvl:4,st:3,dbl:0,bidder:2},
+    declarer:o.declarer===undefined?2:o.declarer,auction:o.auction||[]};
+}
+function runTests(){
+  var results=[];
+  function t(name,fn){
+    try{results.push({name:name,pass:fn()===true,err:null});}
+    catch(e){results.push({name:name,pass:false,err:String(e)});}
+  }
+  /* hand evaluation */
+  t('HCP count A+K+Q+J=10',function(){
+    return evalHand(mkHand([[3,14],[3,13],[2,12],[1,11]])).hcp===10;});
+  t('Distribution void+void+singleton+singleton=10',function(){
+    return evalHand(mkHand([[3,14],[2,2]])).dist===10;});
+  t('Balanced 4-3-3-3 detected',function(){
+    return evalHand(mkHand([[3,14],[3,5],[3,4],[3,3],[2,5],[2,4],[2,3],[1,6],[1,5],[1,4],[0,7],[0,6],[0,5]])).balanced===true;});
+  /* bidding legality */
+  t('After 2H: 2D illegal, 2S/2NT/3C legal',function(){
+    var a=auc('N:2H');
+    return !isLegalCall(a,1,{t:'bid',lvl:2,st:1})&&
+      isLegalCall(a,1,{t:'bid',lvl:2,st:3})&&
+      isLegalCall(a,1,{t:'bid',lvl:2,st:4})&&
+      isLegalCall(a,1,{t:'bid',lvl:3,st:0});});
+  t('After 2NT: only 3-level+ bids legal',function(){
+    var a=auc('N:2N');
+    return !isLegalCall(a,1,{t:'bid',lvl:2,st:3})&&isLegalCall(a,1,{t:'bid',lvl:3,st:0});});
+  t('Double only vs opponent bid',function(){
+    var a=auc('W:1H N:P E:P');
+    return legalInfo(a,2).canX===true&&legalInfo(a,3).canX===false;});
+  t('Redouble only vs opponent double',function(){
+    var a=auc('S:1H W:X N:P E:P');
+    return legalInfo(a,2).canXX===true&&legalInfo(a,1).canXX===false;});
+  /* auction resolution */
+  t('Auction complete after bid + 3 passes',function(){
+    return auctionStatus(auc('N:1H E:P S:P W:P'))==='complete';});
+  t('Passed out after 4 passes',function(){
+    return auctionStatus(auc('N:P E:P S:P W:P'))==='passedout';});
+  t('Auction ongoing after bid + 2 passes',function(){
+    return auctionStatus(auc('N:1H E:P S:P'))==='ongoing';});
+  t('Declarer = first in partnership to name strain (N)',function(){
+    return determineDeclarer(auc('N:1H E:P S:4H W:P N:P E:P'))===0;});
+  t('Declarer determined for EW pair (E)',function(){
+    return determineDeclarer(auc('N:P E:1H S:P W:2H N:P E:P S:P'))===1;});
+  t('Contract captures double state',function(){
+    var ct=finalContract(auc('S:1H W:X N:P E:P S:P W:P N:P'));
+    return ct.lvl===1&&ct.st===2&&ct.dbl===1;});
+  /* SAYC suggestions */
+  t('Balanced 16 HCP opens 1NT',function(){
+    var h=mkHand([[3,14],[3,13],[3,4],[3,3],[2,14],[2,5],[2,4],[1,12],[1,6],[1,5],[0,13],[0,9],[0,8]]);
+    var s=suggestBid(h,[],0);
+    return s.t==='bid'&&s.lvl===1&&s.st===4;});
+  t('13 pts + 5 spades opens 1S',function(){
+    var h=mkHand([[3,14],[3,13],[3,12],[3,5],[3,4],[2,5],[2,4],[2,3],[1,13],[1,3],[1,2],[0,11],[0,2]]);
+    var s=suggestBid(h,[],2);
+    return s.t==='bid'&&s.lvl===1&&s.st===3;});
+  t('Weak hand (<12) passes as opener',function(){
+    var h=mkHand([[3,14],[3,5],[3,4],[3,3],[2,12],[2,5],[2,4],[1,6],[1,5],[1,4],[0,11],[0,6],[0,5]]);
+    return suggestBid(h,[],0).t==='pass';});
+  t('Responder raises partner major 6-9 with support',function(){
+    var h=mkHand([[2,13],[2,5],[2,4],[3,12],[3,3],[3,2],[1,11],[1,5],[1,4],[1,3],[0,13],[0,9],[0,2]]);
+    var s=suggestBid(h,auc('N:1H'),2);
+    return s.t==='bid'&&s.lvl===2&&s.st===2;});
+  t('Responder 6-9 no fit bids 1NT',function(){
+    var h=mkHand([[3,5],[3,4],[2,13],[2,4],[2,3],[1,12],[1,5],[1,4],[0,12],[0,10],[0,9],[0,8],[0,7]]);
+    var s=suggestBid(h,auc('N:1S'),2);
+    return s.t==='bid'&&s.st===4&&s.lvl===1;});
+  t('Overcall with 10+ and good 5-card suit',function(){
+    var h=mkHand([[2,13],[2,12],[2,5],[2,4],[2,3],[3,5],[3,4],[3,2],[1,5],[1,3],[0,13],[0,11],[0,2]]);
+    var s=suggestBid(h,auc('N:1D'),2);
+    return s.t==='bid'&&s.st===2&&s.lvl===1;});
+  t('Minimum opener passes after single raise',function(){
+    var h=mkHand([[3,14],[3,13],[3,12],[3,5],[3,4],[2,5],[2,4],[2,3],[1,13],[1,3],[1,2],[0,11],[0,2]]);
+    var s=suggestBid(h,auc('S:1S W:P N:2S E:P'),2);
+    return s.t==='pass';});
+  /* play rules */
+  t('Must follow suit',function(){
+    var v=validCards(mkHand([[0,14],[2,13]]),0);
+    return v.length===1&&v[0].s===0&&v[0].r===14;});
+  t('Highest of led suit wins',function(){
+    var tr=[{seat:0,card:{s:3,r:13}},{seat:1,card:{s:3,r:14}},{seat:2,card:{s:3,r:2}},{seat:3,card:{s:3,r:5}}];
+    return trickWinner(tr,null).seat===1;});
+  t('Trump beats side suit; higher trump wins',function(){
+    var tr=[{seat:0,card:{s:3,r:14}},{seat:1,card:{s:2,r:2}},{seat:2,card:{s:3,r:13}},{seat:3,card:{s:2,r:3}}];
+    return trickWinner(tr,2).seat===3;});
+  t('Second hand low',function(){
+    var g=fakeG({hands:[[],[],[],mkHand([[1,13],[1,9],[1,2],[3,5]])],
+      trick:[{seat:0,card:{s:1,r:5}}],contract:{lvl:4,st:3,dbl:0,bidder:2},declarer:2});
+    var ch=choosePlay(g,3);
+    return ch.card.s===1&&ch.card.r===2;});
+  t('Cover an honor with an honor',function(){
+    var g=fakeG({hands:[[],mkHand([[1,12],[1,3],[3,5]]),[],[]],
+      trick:[{seat:0,card:{s:1,r:11}}],contract:{lvl:4,st:3,dbl:0,bidder:2},declarer:2});
+    var ch=choosePlay(g,1);
+    return ch.card.s===1&&ch.card.r===12;});
+  t('Third hand high (cheapest winner)',function(){
+    var g=fakeG({hands:[[],mkHand([[1,14],[1,9],[3,5]]),[],[]],
+      trick:[{seat:3,card:{s:1,r:5}},{seat:0,card:{s:1,r:7}}],
+      contract:{lvl:4,st:3,dbl:0,bidder:2},declarer:2});
+    var ch=choosePlay(g,1);
+    return ch.card.s===1&&ch.card.r===9;});
+  t('Fourth seat: partner winning -> play low',function(){
+    var g=fakeG({hands:[[],[],[],mkHand([[1,14],[1,4],[3,5]])],
+      trick:[{seat:0,card:{s:1,r:2}},{seat:1,card:{s:1,r:13}},{seat:2,card:{s:1,r:5}}],
+      contract:{lvl:4,st:3,dbl:0,bidder:2},declarer:2});
+    var ch=choosePlay(g,3);
+    return ch.card.s===1&&ch.card.r===4;});
+  t('Fourth seat: win cheaply when behind',function(){
+    var g=fakeG({hands:[[],[],mkHand([[1,13],[1,4],[3,5]]),[]],
+      trick:[{seat:3,card:{s:1,r:12}},{seat:0,card:{s:1,r:2}},{seat:1,card:{s:1,r:3}}],
+      contract:{lvl:4,st:3,dbl:0,bidder:2},declarer:2});
+    var ch=choosePlay(g,2);
+    return ch.card.s===1&&ch.card.r===13;});
+  t('Ruff when void and partner not winning',function(){
+    var g=fakeG({hands:[[],[],mkHand([[3,2],[3,5],[0,9]]),[]],
+      trick:[{seat:3,card:{s:1,r:14}},{seat:0,card:{s:1,r:4}},{seat:1,card:{s:1,r:3}}],
+      contract:{lvl:4,st:3,dbl:0,bidder:2},declarer:2});
+    var ch=choosePlay(g,2);
+    return ch.card.s===3&&ch.card.r===2;});
+  t('Opening lead: fourth-best of longest suit (defense)',function(){
+    var g=fakeG({hands:[[],[],[],mkHand([[0,13],[0,8],[0,6],[0,4],[0,2],[3,12],[3,5],[3,2],[1,11],[1,9],[1,3],[2,9],[2,2]])],
+      trick:[],contract:{lvl:4,st:2,dbl:0,bidder:2},declarer:2,
+      auction:auc('N:P E:P S:4H W:P N:P E:P')});
+    var ch=choosePlay(g,3);
+    return ch.card.s===0&&ch.card.r===4;});
+  /* scoring */
+  t('3NT making exactly = 400',function(){
+    var r=scoreContract({lvl:3,st:4,dbl:0,bidder:2},2,9);
+    return r.points===400&&r.side==='NS';});
+  t('4H doubled making 5 = 690',function(){
+    return scoreContract({lvl:4,st:2,dbl:1,bidder:2},2,11).points===690;});
+  t('Down 2 doubled = defenders 300',function(){
+    var r=scoreContract({lvl:4,st:2,dbl:1,bidder:2},2,8);
+    return r.points===300&&r.side==='EW';});
+  t('Down 1 undoubled = defenders 50',function(){
+    return scoreContract({lvl:2,st:3,dbl:0,bidder:0},0,7).points===50;});
+  var pass=0,fail=0,lines=[],i;
+  for(i=0;i<results.length;i++){
+    var r=results[i];
+    if(r.pass)pass++;else fail++;
+    lines.push((r.pass?'PASS  ':'FAIL  ')+r.name+(r.err?'  ['+r.err+']':''));
+  }
+  var summary='TESTS: '+pass+'/'+results.length+' passed'+(fail?'  ('+fail+' FAILED)':'');
+  if(typeof document!=='undefined'){
+    var out=el('testOut');
+    out.textContent=summary+'\n'+lines.join('\n');
+    out.style.display='block';
+  }else{
+    console.log(summary);
+    for(i=0;i<lines.length;i++)if(lines[i].indexOf('FAIL')===0)console.log(lines[i]);
+  }
+  return {pass:pass,fail:fail,lines:lines};
+}
+/* ================= bootstrap ================= */
+if(typeof document!=='undefined'&&document.getElementById){
+  init();
+  if(typeof location!=='undefined'&&location.hash==='#test')setTimeout(runTests,60);
+}
+</script>
+</body>
+</html>
