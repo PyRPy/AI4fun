@@ -127,7 +127,6 @@ body{font-family:'Segoe UI',Arial,sans-serif;color:#eee;overflow:hidden;user-sel
     <div id="btnRow">
       <button id="btnNew">New Deal</button>
       <button id="btnHints">Hints: ON</button>
-      <button id="btnSound">Sound: ON</button>
     </div>
   </div>
 </div>
@@ -602,7 +601,7 @@ function choosePlay(G,seat){
 }
 /* ---------- Game state & flow ---------- */
 var G=null;
-var UI={hints:true,sound:true};
+var UI={hints:true};
 function loadScore(){try{return JSON.parse(localStorage.getItem('pb_score'))||{NS:0,EW:0,deals:0}}catch(e){return {NS:0,EW:0,deals:0}}}
 function saveScore(){try{localStorage.setItem('pb_score',JSON.stringify(SCORE))}catch(e){}}
 var SCORE=loadScore();
@@ -718,34 +717,6 @@ function finishPlay(){
   renderAll();
   showModal('Deal Complete — '+res.side+' +'+res.points,res.lines.join('\n'));
 }
-/* ---------- Audio: Web Audio synth pad (no audio files) ---------- */
-var AU={ctx:null,master:null,started:false};
-function audioStart(){
-  if(AU.started)return;
-  var AC=(typeof window!=='undefined')&&(window.AudioContext||window.webkitAudioContext);
-  if(!AC)return;
-  try{
-    AU.ctx=new AC();
-    AU.master=AU.ctx.createGain();
-    AU.master.gain.value=UI.sound?0.045:0;
-    var filt=AU.ctx.createBiquadFilter();filt.type='lowpass';filt.frequency.value=650;
-    AU.master.connect(filt);filt.connect(AU.ctx.destination);
-    var freqs=[196,246.94,293.66],i;
-    for(i=0;i<freqs.length;i++){
-      var o=AU.ctx.createOscillator();o.type='sine';o.frequency.value=freqs[i];o.detune.value=(i-1)*4;
-      var g=AU.ctx.createGain();g.gain.value=0.33;
-      o.connect(g);g.connect(AU.master);o.start();
-    }
-    var lfo=AU.ctx.createOscillator();lfo.frequency.value=0.08;
-    var lg=AU.ctx.createGain();lg.gain.value=0.018;
-    lfo.connect(lg);lg.connect(AU.master.gain);lfo.start();
-    AU.started=true;
-  }catch(e){}
-}
-function audioToggle(){
-  UI.sound=!UI.sound;
-  if(AU.master)AU.master.gain.value=UI.sound?0.045:0;
-}
 /* ================= UI (DOM lives only below this line) ================= */
 function el(id){return document.getElementById(id)}
 var PIP_POS={
@@ -815,7 +786,7 @@ function renderHands(){
       if(acting){
         if(valid.indexOf(c)>=0){
           d.classList.add('playable');
-          (function(dd,cc){dd.addEventListener('click',function(){onHumanCard(seat,cc);});})(d,c);
+          (function(dd,cc,ss){dd.addEventListener('click',function(){onHumanCard(ss,cc);});})(d,c,seat);
         }else d.classList.add('dim');
         if(hintCard&&c.s===hintCard.s&&c.r===hintCard.r)d.classList.add('hintcard');
       }
@@ -925,7 +896,6 @@ function onHumanCard(seat,card){
   if(!humanActsNow()||G.pTurn!==seat)return;
   var ledSuit=G.trick.length?G.trick[0].card.s:null;
   if(validCards(G.hands[seat],ledSuit).indexOf(card)<0)return; // must follow suit
-  audioStart();
   applyPlay(seat,card);
 }
 function onBidClick(e){
@@ -935,26 +905,18 @@ function onBidClick(e){
   if(b.dataset.act)call={t:b.dataset.act};
   else call={t:'bid',lvl:+b.dataset.lvl,st:+b.dataset.st};
   if(!isLegalCall(G.auction,HUMAN,call))return;
-  audioStart();
   applyCall(call);
 }
 function init(){
-  el('btnNew').addEventListener('click',function(){audioStart();newDeal();});
+  el('btnNew').addEventListener('click',function(){newDeal();});
   el('btnHints').addEventListener('click',function(){
     UI.hints=!UI.hints;
     this.textContent='Hints: '+(UI.hints?'ON':'OFF');
     this.classList.toggle('on',UI.hints);
     renderAll();
   });
-  el('btnSound').addEventListener('click',function(){
-    audioStart();audioToggle();
-    this.textContent='Sound: '+(UI.sound?'ON':'OFF');
-    this.classList.toggle('on',UI.sound);
-  });
   el('mBtn').addEventListener('click',function(){hideModal();newDeal();});
-  document.addEventListener('pointerdown',audioStart,{once:true});
   el('btnHints').classList.add('on');
-  el('btnSound').classList.add('on');
   newDeal();
 }
 /* ================= Correctness harness ================= */
