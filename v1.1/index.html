@@ -1,0 +1,1905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>PlayBridge — Contract Bridge</title>
+<style>
+/* ============================================================
+   LAYOUT FOUNDATION (v1.1 step 0)
+   Every size derives from --card-w. Change the breakpoints below
+   and the whole table rescales — no magic numbers downstream.
+   ============================================================ */
+:root{
+  --card-w:64px;                                  /* master scale knob */
+  --card-h:calc(var(--card-w)*1.40625);           /* 90/64 */
+  --card-sm-w:44px;
+  --card-sm-h:calc(var(--card-sm-w)*1.40625);
+  /* Side column and panel are FLUID, not stepped. They give width back to
+     the table continuously as the window narrows, so the centre (bidding
+     box, trick area, your hand) is no longer the only thing that absorbs
+     the squeeze. Floors are set by their own content, not by taste. */
+  --side-col:clamp(96px,11vw,150px);              /* W/E seat columns */
+  --panel-w:clamp(168px,21vw,280px);
+  --row-n:150px;                                  /* North seat row */
+  --row-s:200px;                                  /* South (your) seat row */
+  --panel-font:13px;
+  --btn-min:84px;                                 /* button-grid column floor */
+  --trick-w:calc(var(--card-w)*3.6);              /* 230/64 */
+  --trick-h:calc(var(--card-h)*2.111);            /* 190/90 */
+  --gap:8px;
+  /* Width the middle column actually gets, and the per-card step a
+     13-card fan can afford in it. Hands tighten their overlap instead
+     of overflowing — this is what removes the hard minimum width. */
+  --center-w:calc(100vw - var(--panel-w) - 2*var(--side-col) - 48px);
+  --fan-step:calc((var(--center-w) - var(--card-w))/12);
+}
+/* Only card/row scale steps here — width of panel + side columns is fluid above */
+@media (max-width:1180px){
+  :root{--card-w:57px;--card-sm-w:39px;--panel-font:12px}
+}
+@media (max-width:1000px){
+  :root{--card-w:50px;--card-sm-w:35px;--row-n:128px;--row-s:170px;--panel-font:12px}
+}
+@media (max-width:840px){
+  :root{--btn-min:66px;--bid-btn-w:36px}          /* panel is near its floor: shrink its contents */
+}
+@media (max-height:720px){
+  :root{--row-n:120px;--row-s:158px}
+}
+@media (max-height:600px){
+  :root{--row-n:100px;--row-s:136px;--card-w:52px;--card-sm-w:36px}
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:'Segoe UI',Arial,sans-serif;color:#eee;overflow:hidden;user-select:none;-webkit-user-select:none;
+ background:#0b3d2e;background:radial-gradient(ellipse at center,#17795a 0%,#0b3d2e 65%,#062018 100%);
+ -webkit-text-size-adjust:100%}
+/* touch-action:manipulation kills the iOS double-tap-to-zoom delay on every
+   control; the tap-highlight rule removes the grey flash Safari paints on tap. */
+.c,button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+#app{display:flex;height:100vh;height:100dvh}
+#table{flex:1;min-width:0;position:relative;display:grid;padding:var(--gap);gap:4px;
+ grid-template-areas:".. nn .." "ww cc ee" ".. ss ..";
+ grid-template-rows:var(--row-n) 1fr var(--row-s);
+ grid-template-columns:var(--side-col) 1fr var(--side-col)}
+.seat{position:relative;display:flex;align-items:center;justify-content:center;min-width:0;min-height:0}
+#seatN{grid-area:nn}#seatW{grid-area:ww}#seatE{grid-area:ee}#seatS{grid-area:ss}
+.name-tag{position:absolute;top:2px;left:6px;font-size:12px;font-weight:700;color:#ffd76a;text-shadow:0 1px 2px #000;z-index:5}
+.name-tag .turn{display:inline-block;width:8px;height:8px;border-radius:50%;background:#4caf50;margin-left:4px;box-shadow:0 0 6px #4caf50}
+.card-count{position:absolute;bottom:2px;right:8px;font-size:11px;color:#bbb}
+#center{grid-area:cc;position:relative;display:flex;align-items:center;justify-content:center;min-width:0}
+#trickArea{position:relative;width:var(--trick-w);height:var(--trick-h)}
+.tslot{position:absolute;width:var(--card-w);height:var(--card-h)}
+.tslot.posN{top:0;left:calc((var(--trick-w) - var(--card-w))/2)}
+.tslot.posS{bottom:0;left:calc((var(--trick-w) - var(--card-w))/2)}
+.tslot.posW{top:calc((var(--trick-h) - var(--card-h))/2);left:0}
+.tslot.posE{top:calc((var(--trick-h) - var(--card-h))/2);right:0}
+#hintBar{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--row-s) - 28px);
+ width:max-content;max-width:min(92%,430px);padding:5px 14px;text-align:center;line-height:1.35;
+ background:rgba(0,0,0,.55);border:1px solid #c9a227;border-radius:14px;font-size:13px;color:#ffe9a8;display:none;z-index:20}
+#contractBanner{position:absolute;top:6px;left:50%;transform:translateX(-50%);padding:4px 16px;background:rgba(0,0,0,.5);
+ border-radius:12px;font-size:14px;font-weight:700;color:#ffd76a;display:none;z-index:20;white-space:nowrap}
+/* side panel */
+#panel{width:var(--panel-w);flex:0 0 var(--panel-w);margin:var(--gap) var(--gap) var(--gap) 0;padding:10px;
+ background:rgba(0,0,0,.35);border-radius:10px;
+ display:flex;flex-direction:column;gap:8px;font-size:var(--panel-font);overflow:hidden}
+#panel .row{display:flex;justify-content:space-between;gap:6px}
+#panel .lbl{color:#9fc4b4}
+#statusBox{border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:8px}
+#auctionLog{flex:1 1 auto;min-height:0;overflow-y:auto;background:rgba(0,0,0,.3);border-radius:8px;padding:6px}
+#auctionLog table{width:100%;border-collapse:collapse;text-align:center;font-size:var(--panel-font)}
+#auctionLog th{color:#ffd76a;border-bottom:1px solid rgba(255,255,255,.2);padding:2px}
+#auctionLog td{padding:2px;height:20px}
+/* button row — auto-wraps, sized to hold 5 (New Deal, Hints, Mode, Speed, ?) */
+#btnRow{flex:0 0 auto;display:grid;gap:6px;grid-template-columns:repeat(auto-fit,minmax(var(--btn-min),1fr))}
+#btnRow button{padding:7px 4px;border:0;border-radius:6px;background:#14563f;color:#eee;
+ font-size:12px;line-height:1.2;cursor:pointer;min-height:32px;white-space:nowrap;
+ overflow:hidden;text-overflow:ellipsis}
+#btnRow button:hover{background:#1c7355}
+#btnRow button.on{background:#c9a227;color:#111;font-weight:700}
+/* cards — every internal size is a ratio of --card-w, so .sm only
+   has to override --card-w/--card-h and the whole face rescales */
+.c{position:relative;width:var(--card-w);height:var(--card-h);background:#fdfdf8;
+ border-radius:calc(var(--card-w)*0.094);flex:0 0 auto;
+ box-shadow:1px 2px 5px rgba(0,0,0,.55);color:#141414;cursor:default}
+.c.red{color:#c8102e}
+.c .corner{position:absolute;font-weight:700;font-size:calc(var(--card-w)*0.234);line-height:1.05;
+ text-align:center;width:calc(var(--card-w)*0.25)}
+.c .corner small{display:block;font-size:calc(var(--card-w)*0.219)}
+.c .tl{top:3px;left:3px}.c .br{bottom:3px;right:3px;transform:rotate(180deg)}
+.c .pip{position:absolute;font-size:calc(var(--card-w)*0.328);transform:translate(-50%,-50%);line-height:1}
+.c .pip.flip{transform:translate(-50%,-50%) rotate(180deg)}
+.c .bigpip{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+ font-size:calc(var(--card-w)*0.6875);line-height:1}
+.c .court{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+ width:calc(var(--card-w)*0.625);height:calc(var(--card-w)*0.875);border:1.5px solid currentColor;
+ border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+ font-size:calc(var(--card-w)*0.3125);font-weight:800;
+ background:linear-gradient(135deg,#fff 0%,#e8e2cf 100%);line-height:1.1}
+.c .court small{font-size:calc(var(--card-w)*0.234);font-weight:400}
+.c.back{background:repeating-linear-gradient(45deg,#1c4587 0 5px,#2f5da8 5px 10px);border:3px solid #eee}
+.c.sm{--card-w:var(--card-sm-w);--card-h:calc(var(--card-sm-w)*1.40625)}
+.c.playable{cursor:pointer;transform:translateY(calc(var(--card-h)*-0.089));box-shadow:0 6px 10px rgba(0,0,0,.6)}
+.c.playable:hover{outline:2px solid #ffd76a}
+.c.dim{opacity:.45}
+.c.hintcard{outline:3px solid #ffd76a;box-shadow:0 0 14px #ffd76a}
+/* hands */
+.hand{display:flex;align-items:center;justify-content:center;max-width:100%}
+#seatS .hand{padding:0 8px}
+/* clamp(tightest, what-fits, roomiest): never overlap past 70% (the
+   corner index must stay readable), never spread wider than the design */
+#seatS .c{margin-left:clamp(calc(var(--card-w)*-0.70),
+                            calc(var(--fan-step) - var(--card-w)),
+                            calc(var(--card-w)*-0.25))}
+#seatS .c:first-child{margin-left:0}
+#seatN .c{margin-left:clamp(calc(var(--card-w)*-0.70),
+                            calc(var(--fan-step) - var(--card-w)),
+                            calc(var(--card-w)*-0.375))}
+#seatN .c:first-child{margin-left:0}
+.vfan{display:flex;flex-direction:column;align-items:center}
+.vfan .c{margin-top:calc(var(--card-sm-h)*-0.742)}
+.vfan .c:first-child{margin-top:0}
+/* bidding box — explicitly centred in the table (only shown during
+   the auction, when the trick area is empty). Step 3 turns this into
+   a bottom sheet on phones; anchoring it now makes that a one-rule change. */
+#bidBox{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+ z-index:30;background:rgba(8,24,18,.95);border:1px solid #2c6b52;border-radius:10px;
+ padding:12px;display:none;box-shadow:0 8px 30px rgba(0,0,0,.7);max-width:96%;max-height:96%;overflow:auto}
+#bidBox h3{font-size:13px;color:#ffd76a;margin-bottom:8px;text-align:center}
+.brow{display:flex;gap:5px;margin-bottom:5px;justify-content:center}
+.bbtn{width:var(--bid-btn-w,44px);height:var(--bid-btn-h,32px);border:1px solid #3b7a5e;border-radius:5px;
+ background:#103c2c;color:#eee;font-size:14px;cursor:pointer;flex:0 0 auto}
+.bbtn:hover:not(:disabled){background:#1c7355}
+.bbtn:disabled{opacity:.28;cursor:not-allowed}
+.bbtn.red{color:#ff7b93}
+.bbtn.wide{width:calc(var(--bid-btn-w,44px)*1.41);font-weight:700}
+#bidHint{margin-top:6px;font-size:12px;color:#ffe9a8;min-height:16px;text-align:center;
+ max-width:min(260px,90vw);line-height:1.35;margin-left:auto;margin-right:auto}
+@media (max-height:640px){:root{--bid-btn-h:27px}}
+/* modal */
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:100}
+#modal .box{background:#10261d;border:1px solid #2c6b52;border-radius:12px;padding:22px 28px;min-width:320px;max-width:440px;text-align:center}
+#modal h2{color:#ffd76a;margin-bottom:10px;font-size:20px}
+#modal pre{text-align:left;font-size:13px;font-family:Consolas,monospace;color:#cfe8dc;margin:10px 0;white-space:pre-wrap}
+#modal button{padding:9px 22px;border:0;border-radius:7px;background:#c9a227;color:#111;font-weight:700;font-size:14px;cursor:pointer}
+/* how-to-play overlay (also the first-run welcome) */
+#help{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:110;padding:16px}
+#help .box{background:#10261d;border:1px solid #2c6b52;border-radius:12px;padding:20px 24px;
+ max-width:560px;max-height:88vh;overflow-y:auto;text-align:left}
+#help h2{color:#ffd76a;margin-bottom:12px;font-size:20px;text-align:center}
+#helpBody p{font-size:13.5px;line-height:1.5;color:#cfe8dc;margin-bottom:10px}
+#helpBody b{color:#fff}
+#helpBody i{color:#ffe9a8;font-style:normal}
+#help button{display:block;margin:14px auto 0;padding:9px 26px;border:0;border-radius:7px;
+ background:#c9a227;color:#111;font-weight:700;font-size:14px;cursor:pointer}
+#stVul.vul{color:#ff7b93;font-weight:700}
+#testOut{position:fixed;left:8px;bottom:8px;z-index:200;max-width:46vw;max-height:40vh;overflow:auto;background:rgba(0,0,0,.8);
+ border:1px solid #444;border-radius:8px;padding:8px;font:11px Consolas,monospace;display:none;white-space:pre-wrap}
+.pass{color:#7ee787}.fail{color:#ff7b93}
+/* ============================================================
+   TOUCH + NARROW LAYOUT (step 3a)
+   Same DOM as desktop — only the grid and a few sizes change.
+   Everything above this block is the desktop layout, untouched.
+   ============================================================ */
+/* Defaults MUST precede the media queries below — equal specificity means
+   source order decides, and a later `display:none` would win everywhere. */
+#topbar{display:none}
+#panelClose{display:none}
+/* --- Touch devices of any size (iPad included): bigger hit areas --- */
+@media (pointer:coarse){
+  :root{--bid-btn-w:46px;--bid-btn-h:44px;--btn-min:96px}
+  #btnRow button{min-height:44px;font-size:13px}
+  #modal button,#help button{min-height:44px;padding-left:28px;padding-right:28px}
+  .c.playable:hover{outline:none}          /* hover never fires on touch */
+  .c.sel{outline:3px solid #ffd76a;box-shadow:0 0 16px #ffd76a;
+         transform:translateY(calc(var(--card-h)*-0.22))}
+}
+/* --- Portrait: stack the table, panel becomes a drawer ---
+   Covers phones AND tablets in portrait (iPad portrait is 744-834px, where
+   the desktop 3-column layout pins the panel to its 168px floor and stacks
+   the buttons — the drawer gives the table the whole width instead).
+   Sizes scale with viewport so one rule serves a 375px phone and an 834px
+   iPad; rows derive from card height so a bigger card never overflows its row. */
+@media (max-width:900px){
+  :root{
+    --card-w:clamp(40px,11vw,62px);
+    --card-sm-w:clamp(24px,6.4vw,38px);
+    --side-col:clamp(50px,13vw,92px);
+    --row-n:calc(var(--card-h)*1.25);
+    --row-s:calc(var(--card-h)*1.75);
+    --center-w:calc(100vw - 20px);          /* N and S hands now span full width */
+    --bid-btn-w:clamp(38px,9vw,52px);--bid-btn-h:clamp(38px,7vw,46px);
+  }
+  #app{flex-direction:column}
+  #topbar{
+    display:flex;align-items:center;gap:8px;flex:0 0 auto;
+    padding:6px 10px;padding-top:calc(6px + env(safe-area-inset-top));
+    background:rgba(0,0,0,.42);font-size:12px;color:#cfe8dc;white-space:nowrap;overflow:hidden}
+  #topbar .k{color:#9fc4b4}
+  #topbar b{color:#ffd76a;font-weight:700}
+  #topbar .vul{color:#ff7b93;font-weight:700}
+  #topbar #btnDrawer{margin-left:auto;flex:0 0 auto;width:44px;height:36px;border:0;border-radius:6px;
+    background:#14563f;color:#eee;font-size:17px;line-height:1;cursor:pointer}
+  #table{
+    grid-template-areas:"nn nn nn" "ww cc ee" "ss ss ss";
+    grid-template-rows:var(--row-n) 1fr var(--row-s);
+    grid-template-columns:var(--side-col) 1fr var(--side-col);
+    padding:4px;padding-bottom:calc(4px + env(safe-area-inset-bottom))}
+  .name-tag{font-size:10px;top:0;left:3px}
+  /* panel slides in from the right instead of taking a column */
+  #panel{position:fixed;top:0;right:0;bottom:0;z-index:60;
+    width:min(300px,86vw);flex:0 0 auto;margin:0;border-radius:0;
+    background:rgba(6,20,15,.97);box-shadow:-8px 0 30px rgba(0,0,0,.6);
+    transform:translateX(101%);transition:transform .22s ease;
+    padding:12px;padding-top:calc(12px + env(safe-area-inset-top));font-size:13px}
+  #panel.open{transform:translateX(0)}
+  #panelClose{display:block;align-self:flex-end;border:0;border-radius:6px;background:#14563f;
+    color:#eee;font-size:13px;padding:8px 14px;min-height:40px;cursor:pointer}
+  /* bidding box becomes a bottom sheet */
+  #bidBox{left:0;right:0;bottom:0;top:auto;transform:none;
+    width:100%;max-width:100%;border-radius:14px 14px 0 0;border-left:0;border-right:0;border-bottom:0;
+    padding:10px 8px;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+  #bidBox h3{font-size:12px;margin-bottom:6px}
+  #bidHint{max-width:100%}
+  #hintBar{bottom:calc(var(--row-s) + 6px);font-size:12px;max-width:94%}
+  #contractBanner{font-size:12px;padding:3px 10px}
+  #modal .box{min-width:0;width:100%;max-width:100%;padding:18px 16px}
+  #modal pre{font-size:12px}
+  #help .box{padding:16px 14px}
+  #helpBody p{font-size:13px}
+}
+/* --- Phone landscape / very short windows: height is the scarce axis --- */
+@media (max-height:480px){
+  :root{--card-w:clamp(34px,9vh,44px);--card-sm-w:clamp(20px,5vh,26px);
+        --row-n:calc(var(--card-h)*1.12);--row-s:calc(var(--card-h)*1.5);
+        --bid-btn-h:32px}
+  #topbar{padding-top:calc(3px + env(safe-area-inset-top));padding-bottom:3px;font-size:11px}
+  #bidBox{max-height:84vh;overflow:auto}
+  #help .box{max-height:92vh}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <span><span class="k">Deal</span> <b id="tbDeal">—</b></span>
+    <span><span class="k">Vul</span> <b id="tbVul">—</b></span>
+    <span><span class="k">Contract</span> <b id="tbContract">—</b></span>
+    <span><span class="k">Tricks</span> <b id="tbTricks">0/0</b></span>
+    <button id="btnDrawer" aria-label="Menu">&#9776;</button>
+  </div>
+  <div id="table">
+    <div class="seat" id="seatN"><span class="name-tag">North</span><div class="hand" id="handN"></div></div>
+    <div class="seat" id="seatW"><span class="name-tag">West</span><div class="hand" id="handW"></div></div>
+    <div id="center">
+      <div id="contractBanner"></div>
+      <div id="trickArea">
+        <div class="tslot posN" id="tsN"></div>
+        <div class="tslot posE" id="tsE"></div>
+        <div class="tslot posS" id="tsS"></div>
+        <div class="tslot posW" id="tsW"></div>
+      </div>
+      <div id="bidBox"></div>
+      <div id="hintBar"></div>
+    </div>
+    <div class="seat" id="seatE"><span class="name-tag">East</span><div class="hand" id="handE"></div></div>
+    <div class="seat" id="seatS"><span class="name-tag">South (You)</span><div class="hand" id="handS"></div></div>
+  </div>
+  <div id="panel">
+    <button id="panelClose">Close &#10005;</button>
+    <div id="statusBox">
+      <div class="row"><span class="lbl">Deal</span><span id="stDeal">—</span></div>
+      <div class="row"><span class="lbl">Vulnerable</span><span id="stVul">—</span></div>
+      <div class="row"><span class="lbl">Dealer</span><span id="stDealer">—</span></div>
+      <div class="row"><span class="lbl">Contract</span><span id="stContract">—</span></div>
+      <div class="row"><span class="lbl">Declarer</span><span id="stDeclarer">—</span></div>
+      <div class="row"><span class="lbl">Tricks NS / EW</span><span id="stTricks">0 / 0</span></div>
+      <div class="row"><span class="lbl">Score NS / EW</span><span id="stScore">0 / 0</span></div>
+      <div class="row" id="rowPart"><span class="lbl">Part-score</span><span id="stPart">0 / 0</span></div>
+    </div>
+    <div id="auctionLog"></div>
+    <div id="btnRow">
+      <button id="btnNew">New Deal</button>
+      <button id="btnHints">Hints: ON</button>
+      <button id="btnMode">Chicago</button>
+      <button id="btnSpeed">Speed: Normal</button>
+      <button id="btnHelp">? How to play</button>
+    </div>
+  </div>
+</div>
+<div id="modal"><div class="box"><h2 id="mTitle"></h2><pre id="mBody"></pre><button id="mBtn">Next Deal</button></div></div>
+<div id="help"><div class="box">
+  <h2 id="helpTitle">How to play</h2>
+  <div id="helpBody">
+    <p id="helpIntro"><b>This is a beginner's bridge trainer.</b> The AI plays a simple,
+    consistent style and explains every decision, so you can learn the shape of the game.
+    It is not a strong opponent — a more advanced version is coming.</p>
+    <p><b>You are South.</b> North is your partner; East and West are the opposition.
+    Leave <i>Hints</i> on and the game will tell you what it would bid or play, and why.</p>
+    <p><b>1 — The auction.</b> Everyone bids in turn for the right to name trumps.
+    Each bid must be higher than the last. Bid <i>Pass</i> if you have nothing to say.
+    Three passes in a row ends the auction, and the last bid becomes the contract.</p>
+    <p><b>2 — The contract.</b> "3♥" means your side must win <b>9</b> tricks
+    (6 + 3) with hearts as trumps. "NT" means no trumps at all.</p>
+    <p><b>3 — The play.</b> 13 tricks, four cards each. You must follow the suit that
+    was led if you can. Highest card of the led suit wins — unless someone plays a
+    trump, in which case the highest trump wins. Whoever wins leads the next trick.</p>
+    <p><b>4 — Dummy.</b> After the opening lead, the declarer's partner lays their hand
+    face up and takes no further part. If that's you, sit back — use <i>Speed</i> to
+    skip ahead.</p>
+    <p><b>Chicago</b> is a 4-deal session: play four deals, highest total wins.
+    Being <i>vulnerable</i> (shown in the panel) raises both your bonuses and your
+    penalties. <b>Endless</b> just deals forever and keeps a running total.</p>
+  </div>
+  <button id="helpBtn">Got it</button>
+</div></div>
+<div id="testOut"></div>
+<script>
+/* ============================================================
+   PlayBridge Brain — brain.js
+   Level: I1 (simplified SAYC + Stayman & Blackwood; rule-based play)
+   ------------------------------------------------------------
+   THE BRAIN CONTRACT (api version 1)
+
+   A brain is a global object named `Brain`:
+     Brain = {
+       name    : string,          // shown in logs/tests
+       version : 'x.y.z',
+       api     : 1,               // interface version — do not change
+       evaluate(hand)                 -> {hcp, dist, pts, len[4], suitHCP[4], balanced}
+       suggestBid(hand, auction, seat) -> {t:'pass'|'bid'|'x'|'xx', lvl?, st?, reason}
+       choosePlay(G, seat)             -> {card:{s,r}, reason}
+     }
+   - hand: array of {s:0..3 (C,D,H,S), r:2..14}
+   - auction: array of {t, lvl, st, seat}; seat: 0=N,1=E,2=S,3=W
+   - G: game state {hands, trick, contract, declarer, auction}
+   - Every result MUST be legal; bridge.html keeps a Pass/legality
+     safety net, but relying on it is a brain bug.
+   - `reason` strings power the hint system — always explain.
+
+   SHARED RULES (defined in bridge.html, same global scope; loaded
+   before any Brain function is called): SEATS, SUITS, STRAINS, RK,
+   partner(s), side(s), ofSuit(hand,s), validCards(hand,ledSuit),
+   trickWinner(trick,trump), lastBid(a), bidVal(c),
+   cheapestLevel(a,st), legalInfo(a,seat), lastSuitBidBy(a,seat).
+
+   HOW TO UPGRADE THE BRAIN (I1 conventions, I2 Monte Carlo, ...):
+   1. Copy this file, implement the same contract, bump version.
+   2. Replace brain.js next to bridge.html (or load both files and
+      call setBrain(newBrain) from the console/UI).
+   3. Verify: open bridge.html#test — all fixtures must pass —
+      then run the headless smoke deals (see AGENTS.md).
+   ============================================================ */
+
+/* ---------- Hand evaluation (Level 1: HCP + distribution) ---------- */
+function evalHand(hand){
+  var len=[0,0,0,0],suitHCP=[0,0,0,0],hcp=0,i,c,v;
+  for(i=0;i<hand.length;i++){
+    c=hand[i];len[c.s]++;
+    v=c.r===14?4:c.r===13?3:c.r===12?2:c.r===11?1:0;
+    suitHCP[c.s]+=v;hcp+=v;
+  }
+  var dist=0;
+  for(i=0;i<4;i++)dist+=len[i]===0?3:len[i]===1?2:len[i]===2?1:0;
+  var ls=len.slice().sort(function(a,b){return b-a});
+  var balanced=(ls[0]===4&&ls[1]===3)||(ls[0]===4&&ls[1]===4)||(ls[0]===5&&ls[1]===3&&ls[2]===3);
+  return {hcp:hcp,dist:dist,pts:hcp+dist,len:len,suitHCP:suitHCP,balanced:balanced};
+}
+/* ---------- Bidding AI: simplified SAYC (Level 2) ---------- */
+/* ============================================================
+   CONVENTIONS (I1)
+   The brain is stateless — it is handed the whole auction on every
+   call and must re-derive meaning from it. So a convention is not a
+   flag we set, it is a SHAPE we recognise in the bid sequence.
+   Every entry point returns a legal bid or null (never throws), so
+   callers can fall through to the natural-bidding rules.
+   ============================================================ */
+function bidSeq(auction){                  // just the bids, in order
+  var out=[],i;
+  for(i=0;i<auction.length;i++)if(auction[i].t==='bid')out.push(auction[i]);
+  return out;
+}
+function countAces(hand){
+  var n=0,i;
+  for(i=0;i<hand.length;i++)if(hand[i].r===14)n++;
+  return n;
+}
+/* The most recently named strain that BOTH partners have bid — our trump fit. */
+function agreedSuit(auction,seat){
+  var pa=partner(seat),mine={},theirs={},seq=bidSeq(auction),i,c;
+  for(i=0;i<seq.length;i++){
+    c=seq[i];
+    if(c.st>3)continue;
+    if(c.seat===seat)mine[c.st]=true;
+    else if(c.seat===pa)theirs[c.st]=true;
+  }
+  for(i=seq.length-1;i>=0;i--){
+    c=seq[i];
+    if(c.st<=3&&(c.seat===seat||c.seat===pa)&&mine[c.st]&&theirs[c.st])return c.st;
+  }
+  return null;
+}
+/* The suit Blackwood is about. All three phases (ask / reply / sign-off)
+   MUST agree on this or the convention answers a question nobody asked:
+   prefer a real fit, else the last suit partner named, else my own. */
+function bwFit(auction,seat){
+  var f=agreedSuit(auction,seat);
+  if(f!==null)return f;
+  f=lastSuitBidBy(auction,partner(seat));
+  if(f!==null)return f;
+  return lastSuitBidBy(auction,seat);
+}
+var Conventions={
+  /* --- STAYMAN: 2C over partner's 1NT, asking for a 4-card major ---
+     Only recognised in a clean, uncontested sequence starting with the
+     1NT opening; over interference we fall back to natural bidding. */
+  stayman:function(ev,auction,seat){          // responder asks
+    var seq=bidSeq(auction);
+    if(seq.length!==1)return null;
+    var p=seq[0];
+    if(p.seat!==partner(seat)||p.lvl!==1||p.st!==4)return null;
+    if(ev.pts<8)return null;
+    if(ev.len[2]<4&&ev.len[3]<4)return null;
+    return mkBid(auction,0,2,'Stayman: 8+ pts with a 4-card major — 2'+STRAINS[0]+' asks partner for one');
+  },
+  staymanReply:function(ev,auction,seat){     // 1NT opener answers
+    var seq=bidSeq(auction);
+    if(seq.length!==2)return null;
+    if(seq[0].seat!==seat||seq[0].lvl!==1||seq[0].st!==4)return null;
+    if(seq[1].seat!==partner(seat)||seq[1].lvl!==2||seq[1].st!==0)return null;
+    if(ev.len[2]>=4)return mkBid(auction,2,2,'Answering Stayman: I have 4 hearts');
+    if(ev.len[3]>=4)return mkBid(auction,3,2,'Answering Stayman: I have 4 spades');
+    return mkBid(auction,1,2,'Answering Stayman: no 4-card major — 2'+STRAINS[1]);
+  },
+  staymanPlace:function(ev,auction,seat){     // asker places the contract
+    var seq=bidSeq(auction);
+    if(seq.length!==3)return null;
+    if(seq[0].seat!==partner(seat)||seq[0].lvl!==1||seq[0].st!==4)return null;
+    if(seq[1].seat!==seat||seq[1].lvl!==2||seq[1].st!==0)return null;
+    var r=seq[2];
+    if(r.seat!==partner(seat)||r.lvl!==2)return null;
+    var game=ev.pts>=10;
+    if(r.st===2||r.st===3){                   // partner showed a major
+      if(ev.len[r.st]>=4)
+        return game?mkBid(auction,r.st,4,'Stayman found our 4-4 '+STRAINS[r.st]+' fit — bid game')
+                   :mkBid(auction,r.st,3,'Stayman found a '+STRAINS[r.st]+' fit — invite with 3'+STRAINS[r.st]);
+    }
+    return game?mkBid(auction,4,3,'No major fit after Stayman — 3NT')
+               :mkBid(auction,4,2,'No major fit after Stayman — invite with 2NT');
+  },
+  /* --- BLACKWOOD: 4NT asks for aces once a trump suit is agreed ---
+     4NT is only read as Blackwood when we HAVE a fit; a bare 4NT over
+     partner's notrump is natural and handled elsewhere. */
+  blackwood:function(ev,auction,seat){        // ask
+    var fit=bwFit(auction,seat);
+    if(fit===null)return null;
+    if(ev.pts<18)return null;                 // ~18 opposite an opening = slam zone
+    var seq=bidSeq(auction),i;
+    for(i=0;i<seq.length;i++)                 // never ask twice
+      if(seq[i].seat===seat&&seq[i].lvl===4&&seq[i].st===4)return null;
+    return mkBid(auction,4,4,ev.pts+' pts with a '+STRAINS[fit]+
+      ' fit — 4NT Blackwood, asking partner how many aces they hold');
+  },
+  blackwoodReply:function(ev,auction,seat,hand){
+    var seq=bidSeq(auction);
+    if(!seq.length)return null;
+    var last=seq[seq.length-1];
+    if(last.seat!==partner(seat)||last.lvl!==4||last.st!==4)return null;
+    if(bwFit(auction,seat)===null)return null; // bare 4NT over notrump is natural
+    var a=countAces(hand);
+    var st=a===4?0:a;                         // 5C = 0 or 4, 5D = 1, 5H = 2, 5S = 3
+    return mkBid(auction,st,5,'Answering Blackwood: I hold '+a+' ace'+(a===1?'':'s'));
+  },
+  blackwoodPlace:function(ev,auction,seat,hand){
+    var seq=bidSeq(auction),i,ask=-1;
+    for(i=seq.length-1;i>=0;i--)
+      if(seq[i].seat===seat&&seq[i].lvl===4&&seq[i].st===4){ask=i;break;}
+    if(ask<0)return null;
+    var reply=null;
+    for(i=ask+1;i<seq.length;i++)if(seq[i].seat===partner(seat)){reply=seq[i];break;}
+    if(!reply||reply.lvl!==5||reply.st>3)return null;
+    var fit=bwFit(auction,seat);
+    if(fit===null)return null;
+    var mine=countAces(hand);
+    /* 5C shows 0 or 4. If I hold an ace myself, 4 is impossible, so it is 0.
+       If I hold none it is genuinely ambiguous — we assume 0 and sign off,
+       which can miss a slam but never bids one off two aces. */
+    var theirs=reply.st===0?0:reply.st;
+    var total=mine+theirs;
+    if(total>=3)
+      return mkBid(auction,fit,6,'Blackwood: '+total+' aces between us — bid the small slam')||
+             mkBid(auction,fit,5,'Blackwood: signing off');
+    return mkBid(auction,fit,5,'Blackwood: only '+total+' aces — stop below slam')||
+           {t:'pass',reason:'Blackwood: too few aces for slam — pass'};
+  },
+  jacobyTransfer:function(){return null}      // TODO I2
+};
+function bestSuit(ev,majorsOnly,minLen){
+  var order=[3,2,1,0],best=-1,bl=minLen-1,i,s;
+  for(i=0;i<4;i++){
+    s=order[i];
+    if(majorsOnly&&s<2)continue;
+    if(ev.len[s]>bl||(ev.len[s]===bl&&best>=0&&s>best&&ev.len[s]===ev.len[best])){best=s;bl=ev.len[s];}
+  }
+  return best>=0?best:null;
+}
+function gameLevel(st){return st===4?3:st>=2?4:5} // 3NT / 4 of major / 5 of minor
+function mkBid(auction,st,lvlWanted,reason){
+  var lvl=cheapestLevel(auction,st);
+  if(lvl===null)return null;
+  if(lvlWanted){
+    if(lvlWanted>7||lvl>lvlWanted)return null; // must be exactly this level; never climb past it
+    lvl=lvlWanted;
+  }
+  return {t:'bid',lvl:lvl,st:st,reason:reason};
+}
+function suggestBid(hand,auction,seat){
+  var ev=evalHand(hand),pts=ev.pts,h=ev.hcp,i,c;
+  function pass(r){return {t:'pass',reason:r}}
+  var myBids=[],pBids=[],oppBids=[];
+  for(i=0;i<auction.length;i++){
+    c=auction[i];
+    if(c.t!=='bid')continue;
+    if(c.seat===seat)myBids.push(c);
+    else if(c.seat===partner(seat))pBids.push(c);
+    else oppBids.push(c);
+  }
+  var b,p,firstBid=null;
+  for(i=0;i<auction.length;i++)if(auction[i].t==='bid'){firstBid=auction[i];break;}
+  /* --- CONVENTIONS (I1) — recognised before any natural rule, because a
+     conventional bid means something the natural rules would misread. --- */
+  var cv;
+  cv=Conventions.blackwoodReply(ev,auction,seat,hand); if(cv)return cv;
+  cv=Conventions.blackwoodPlace(ev,auction,seat,hand); if(cv)return cv;
+  cv=Conventions.staymanReply(ev,auction,seat);        if(cv)return cv;
+  cv=Conventions.staymanPlace(ev,auction,seat);        if(cv)return cv;
+  cv=Conventions.stayman(ev,auction,seat);             if(cv)return cv;
+  /* --- OPENING (no one has bid) --- */
+  if(myBids.length===0&&pBids.length===0&&oppBids.length===0){
+    if(pts<12)return pass('Fewer than 12 points — not enough to open');
+    if(h>=22)return mkBid(auction,0,2,'22+ points — strong 2'+STRAINS[0])||pass('Fallback');
+    if(h>=15&&h<=17&&ev.balanced)return mkBid(auction,4,1,'15–17 HCP, balanced — open 1NT');
+    if(h>=20&&h<=21&&ev.balanced)return mkBid(auction,4,2,'20–21 HCP, balanced — open 2NT');
+    var s5=bestSuit(ev,true,5);
+    if(s5!==null)return mkBid(auction,s5,1,pts+' pts, '+ev.len[s5]+'-card major — open 1'+STRAINS[s5]);
+    var sm=bestSuit(ev,false,3);
+    if(ev.len[0]===3&&ev.len[1]===3)sm=0; // SAYC: 3-3 minors open 1 club
+    if(sm!==null)return mkBid(auction,sm,1,pts+' pts, longest suit — open 1'+STRAINS[sm]);
+    return pass('No biddable suit — fallback pass');
+  }
+  /* --- OVERCALL (opponents bid, partner silent) --- */
+  if(myBids.length===0&&pBids.length===0&&oppBids.length>0){
+    if(pts>=10){
+      var so=bestSuit(ev,false,5);
+      if(so!==null&&ev.suitHCP[so]>=3){
+        var lo=cheapestLevel(auction,so);
+        if(lo!==null&&lo<=2)return mkBid(auction,so,lo,'Overcall: '+pts+' pts, good '+ev.len[so]+'-card suit');
+      }
+    }
+    return pass('No sound overcall (need 10+ pts and a good 5-card suit)');
+  }
+  /* --- RESPONDING to partner's opening --- */
+  if(myBids.length===0&&pBids.length>0){
+    p=pBids[pBids.length-1];
+    // partner opened 2C (strong, opening bid only)
+    if(p.lvl===2&&p.st===0&&firstBid===p){
+      if(pts>=8){
+        var sp=bestSuit(ev,false,5),mp;
+        if(sp!==null){mp=mkBid(auction,sp,null,'8+ pts — positive response');if(mp)return mp;}
+        mp=mkBid(auction,4,null,'8+ pts — positive NT');if(mp)return mp;
+        return pass('Fallback — no legal positive');
+      }
+      return mkBid(auction,1,null,'0–7 pts — 2'+STRAINS[1]+' waiting')||pass('Fallback');
+    }
+    // partner opened NT
+    if(p.st===4){
+      if(p.lvl===1){
+        if(pts<=7)return pass('0–7 pts opposite 1NT — pass');
+        var mbn;
+        if(pts<=9){mbn=mkBid(auction,4,2,'8–9 pts — invite game with 2NT');if(mbn)return mbn;}
+        else{mbn=mkBid(auction,4,3,'10+ pts opposite 15–17 — bid 3NT');if(mbn)return mbn;}
+        return pass('No legal NT call — fallback pass');
+      }
+      if(p.lvl===2){
+        if(pts>=4){var mb2=mkBid(auction,4,3,'4+ pts opposite 20–21 — bid 3NT');if(mb2)return mb2;}
+        return pass('0–3 pts — pass');
+      }
+    }
+    // partner opened a suit
+    var sup=ev.len[p.st],maj=p.st>=2,lvl;
+    if(pts<6)return pass('Fewer than 6 points — pass');
+    if(pts<=9){
+      if(sup>=3&&cheapestLevel(auction,p.st)===p.lvl+1)
+        return mkBid(auction,p.st,p.lvl+1,'6–9 pts, '+sup+'-card support — raise partner');
+      lvl=cheapestLevel(auction,4);
+      if(lvl!==null&&lvl<=2)return mkBid(auction,4,lvl,'6–9 pts, no fit — '+lvl+'NT');
+      return pass('Too weak to advance — fallback pass');
+    }
+    // 10+
+    if(maj&&sup>=3){
+      if(pts>=18&&sup>=4){                    // slam zone opposite an opening bid
+        cv=Conventions.blackwood(ev,auction,seat);
+        if(cv)return cv;
+      }
+      if(pts>=13){
+        var mg=mkBid(auction,p.st,4,'13+ pts with support — bid game');
+        if(mg)return mg;
+        return pass('Game out of reach — fallback pass');
+      }
+      return mkBid(auction,p.st,p.lvl+1,'10–12 pts, support — raise')||pass('Fallback');
+    }
+    var sn=-1,sl=3;
+    for(i=3;i>=0;i--)if(i!==p.st&&ev.len[i]>sl){sn=i;sl=ev.len[i];}
+    if(sn>=0){
+      lvl=cheapestLevel(auction,sn);
+      if(lvl!==null&&lvl<=2)return mkBid(auction,sn,lvl,'10+ pts — bid new suit '+STRAINS[sn]);
+    }
+    lvl=cheapestLevel(auction,4);
+    if(lvl!==null&&lvl<=3&&ev.balanced)return mkBid(auction,4,lvl,'10+ pts, balanced — '+lvl+'NT');
+    if(sup>=3)return mkBid(auction,p.st,p.lvl+1,'Support — raise partner')||pass('Fallback');
+    return pass('No good advance — fallback pass');
+  }
+  /* --- REBID (I have bid before) --- */
+  if(myBids.length>0){
+    var my0=myBids[0];
+    // after my strong 2C opening (opening bid only, not an overcall)
+    if(my0.lvl===2&&my0.st===0&&firstBid===my0){
+      var pb=pBids[pBids.length-1],mb;
+      if(pb&&pb.st<4&&!(pb.lvl===2&&pb.st===1)&&ev.len[pb.st]>=4&&pb.lvl<gameLevel(pb.st)){
+        mb=mkBid(auction,pb.st,pb.lvl+1,'Strong — raise partner’s positive');
+        if(mb)return mb;
+      }
+      if(ev.balanced){
+        mb=mkBid(auction,4,h>=25?3:null,h>=25?'25+ HCP balanced — 3NT':'22–24 balanced — NT');
+        if(mb)return mb;
+      }
+      var ss=bestSuit(ev,false,5);
+      if(ss!==null){mb=mkBid(auction,ss,null,'Strong hand — show '+STRAINS[ss]);if(mb)return mb;}
+      mb=mkBid(auction,4,3,'Strong hand — 3NT');if(mb)return mb;
+      return pass('Fallback');
+    }
+    p=pBids.length?pBids[pBids.length-1]:null;
+    if(!p)return pass('Partner silent — fallback pass');
+    // partner raised my suit
+    if(p.st===my0.st&&p.st<4){
+      if(pts>=18){                            // fit + extras = ask for aces
+        cv=Conventions.blackwood(ev,auction,seat);
+        if(cv)return cv;
+      }
+      if(p.st>=2){ // major
+        if(pts>=17){var mag=mkBid(auction,p.st,4,'17+ pts — accept game');if(mag)return mag;}
+        if(pts>=15&&p.lvl===2){var mi=mkBid(auction,p.st,3,'15–16 pts — invite game');if(mi)return mi;}
+        return pass('Minimum opener — pass');
+      }
+      if(ev.balanced&&h>=15){var m3n=mkBid(auction,4,3,'Minor fit, 15+ balanced — try 3NT');if(m3n)return m3n;}
+      return pass('Minimum opener — pass');
+    }
+    // partner bid NT
+    if(p.st===4){
+      if(p.lvl===2&&my0.st===4&&my0.lvl===1){
+        if(h>=16){var ma=mkBid(auction,4,3,'16–17 HCP — accept game invite');if(ma)return ma;}
+        return pass('15 HCP minimum — decline invite');
+      }
+      if(h>=18){var m3b=mkBid(auction,4,3,'18+ HCP — bid 3NT');if(m3b)return m3b;}
+      return pass('No extra values — pass');
+    }
+    // partner bid a new suit
+    if(ev.len[p.st]>=4){
+      if(p.lvl>=gameLevel(p.st))return pass('Game already reached — pass');
+      return mkBid(auction,p.st,p.lvl+1,'4-card support for partner — raise')||pass('Fallback');
+    }
+    if(ev.len[my0.st]>=6){
+      var lr=cheapestLevel(auction,my0.st);
+      if(lr!==null&&lr<=3)return mkBid(auction,my0.st,lr,'6-card suit — rebid it');
+    }
+    if(ev.balanced&&h>=15&&h<=17){
+      var ln=cheapestLevel(auction,4);
+      if(ln!==null&&ln<=2)return mkBid(auction,4,ln,'15–17 balanced — '+ln+'NT');
+    }
+    return pass('No clear rebid — fallback pass');
+  }
+  return pass('Fallback pass');
+}
+/* ---------- Play engine (rule-based heuristics, I0) ---------- */
+function lowest(cards){var m=cards[0];for(var i=1;i<cards.length;i++)if(cards[i].r<m.r)m=cards[i];return m}
+function highest(cards){var m=cards[0];for(var i=1;i<cards.length;i++)if(cards[i].r>m.r)m=cards[i];return m}
+function minAbove(cards,rank){var best=null;for(var i=0;i<cards.length;i++)if(cards[i].r>rank&&(!best||cards[i].r<best.r))best=cards[i];return best}
+function discardChoice(hand,trump){
+  var ev=evalHand(hand),s,bestS=-1,bestLen=99,bestH=99;
+  for(s=0;s<4;s++){
+    if(s===trump||ev.len[s]===0)continue;
+    if(ev.len[s]<bestLen||(ev.len[s]===bestLen&&ev.suitHCP[s]<bestH)){bestS=s;bestLen=ev.len[s];bestH=ev.suitHCP[s];}
+  }
+  return bestS<0?lowest(hand):lowest(ofSuit(hand,bestS));
+}
+function seqTop(cards){ // top of touching honors (2+ consecutive, top is an honor)
+  var s=cards.slice().sort(function(a,b){return b.r-a.r});
+  if(s.length>=2&&s[0].r>=11&&s[0].r-s[1].r===1)return s[0];
+  return null;
+}
+function fourthBest(cards){
+  var s=cards.slice().sort(function(a,b){return b.r-a.r});
+  return s.length>=4?s[3]:s[s.length-1];
+}
+function choosePlay(G,seat){
+  var hand=G.hands[seat],trick=G.trick,i,s,cards;
+  var trump=(G.contract&&G.contract.st<4)?G.contract.st:null;
+  var decl=G.declarer,declSide=(seat===decl||seat===partner(decl));
+  var ledSuit=trick.length?trick[0].card.s:null;
+  function ret(card,reason){return {card:card,reason:reason}}
+  /* --- LEAD (first card of trick) --- */
+  if(trick.length===0){
+    if(!declSide){
+      var ps=lastSuitBidBy(G.auction,partner(seat));
+      if(ps!==null&&ofSuit(hand,ps).length){
+        cards=ofSuit(hand,ps);
+        var sq=seqTop(cards);
+        return ret(sq||fourthBest(cards),sq?'Lead partner’s suit — top of touching honors':'Lead partner’s suit — fourth-best');
+      }
+      for(s=3;s>=0;s--){
+        if(s===trump)continue;
+        var sq2=seqTop(ofSuit(hand,s));
+        if(sq2)return ret(sq2,'Top of touching honors');
+      }
+      var bs=-1,bl=0;
+      for(s=0;s<4;s++){if(s===trump)continue;var l=ofSuit(hand,s).length;if(l>bl){bl=l;bs=s}}
+      if(bs>=0)return ret(fourthBest(ofSuit(hand,bs)),'Fourth-best from longest suit');
+      return ret(lowest(hand),'Only trumps left — lead low');
+    }
+    if(seat===decl&&trump!==null&&ofSuit(hand,trump).length>=2)
+      return ret(highest(ofSuit(hand,trump)),'Draw trumps');
+    for(s=3;s>=0;s--){
+      cards=ofSuit(hand,s);
+      for(i=0;i<cards.length;i++)if(cards[i].r===14)return ret(cards[i],'Cash winners (Ace)');
+    }
+    for(s=3;s>=0;s--){
+      cards=ofSuit(hand,s);
+      var hasA=false,k=null,j;
+      for(j=0;j<cards.length;j++){if(cards[j].r===14)hasA=true;if(cards[j].r===13)k=cards[j];}
+      if(hasA&&k)return ret(k,'Cash winners (King)');
+    }
+    var bs2=-1,bl2=0;
+    for(s=0;s<4;s++){if(s===trump)continue;var l2=ofSuit(hand,s).length;if(l2>bl2){bl2=l2;bs2=s}}
+    if(bs2>=0)return ret(fourthBest(ofSuit(hand,bs2)),'Develop long suit — fourth-best');
+    return ret(lowest(hand),'Lead low');
+  }
+  /* --- FOLLOW --- */
+  var valid=validCards(hand,ledSuit);
+  var canFollow=ofSuit(hand,ledSuit).length>0;
+  var win=trickWinner(trick,trump);
+  var pWinning=(win.seat===partner(seat));
+  if(!canFollow){
+    if(!pWinning&&trump!==null){
+      var tr=ofSuit(hand,trump);
+      if(tr.length){
+        var maxT=-1;
+        for(i=0;i<trick.length;i++)if(trick[i].card.s===trump&&trick[i].card.r>maxT)maxT=trick[i].card.r;
+        if(maxT<0)return ret(lowest(tr),'Ruff (trump in)');
+        var ov=minAbove(tr,maxT);
+        if(ov)return ret(ov,'Overruff');
+      }
+    }
+    return ret(discardChoice(hand,trump),pWinning?'Partner winning — discard weakest suit':'Cannot win — discard weakest suit');
+  }
+  var pos=trick.length; // 1=second hand, 2=third, 3=fourth
+  if(pos===1){
+    var ledCard=trick[0].card;
+    if(ledCard.r>=11){
+      var cov=minAbove(valid,ledCard.r);
+      if(cov)return ret(cov,'Cover an honor with an honor');
+    }
+    return ret(lowest(valid),'Second hand low');
+  }
+  if(pos===2){
+    if(pWinning)return ret(lowest(valid),'Partner winning — play low');
+    if(win.card.s===trump)return ret(lowest(valid),'Cannot beat the trump — play low');
+    var third=minAbove(valid,win.card.r);
+    if(third)return ret(third,'Third hand high');
+    return ret(lowest(valid),'Cannot win — play low');
+  }
+  if(pWinning)return ret(lowest(valid),'Partner’s trick — win cheaply, play low');
+  if(win.card.s===trump)return ret(lowest(valid),'Cannot beat the trump — play low');
+  var fourth=minAbove(valid,win.card.r);
+  if(fourth)return ret(fourth,'Win the trick — cheapest card');
+  return ret(lowest(valid),'Cannot win — play low');
+}
+/* ---------- The Brain object (the swappable interface) ---------- */
+var Brain={
+  name:'SAYC I1',
+  version:'1.1.0',
+  api:1,
+  evaluate:evalHand,
+  suggestBid:suggestBid,
+  choosePlay:choosePlay
+};
+
+</script>
+<script>
+/* ============================================================
+   PlayBridge — Contract Bridge (game shell)
+   The AI ("the brain") lives in brain.js — a swappable module
+   implementing evaluate / suggestBid / choosePlay (see contract
+   at the top of brain.js). Upgrade the game by replacing
+   brain.js or calling setBrain(newBrain); this file never needs
+   to change for a smarter AI.
+   Logic modules are pure (no DOM) until the UI section.
+   Seats: 0=N, 1=E, 2=S(human), 3=W. Clockwise order N,E,S,W.
+   ============================================================ */
+var SEATS=['N','E','S','W'], HUMAN=2;
+var SUITS=['\u2663','\u2666','\u2665','\u2660'];       // club diamond heart spade
+var RED=[false,true,true,false];
+var STRAINS=['\u2663','\u2666','\u2665','\u2660','NT'];  // + NT for bidding
+var RK='23456789TJQKA';
+function partner(s){return (s+2)%4}
+function nextSeat(s){return (s+1)%4}
+function side(s){return s%2===0?'NS':'EW'}
+function cardStr(c){return RK[c.r-2]+SUITS[c.s]}
+function callStr(c){
+  if(c.t==='pass')return 'Pass';
+  if(c.t==='x')return 'X';
+  if(c.t==='xx')return 'XX';
+  return c.lvl+STRAINS[c.st];
+}
+/* ---------- Deck ---------- */
+function makeDeck(){
+  var d=[],s,r;
+  for(s=0;s<4;s++)for(r=2;r<=14;r++)d.push({s:s,r:r});
+  return d;
+}
+function shuffle(d){
+  for(var i=d.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=d[i];d[i]=d[j];d[j]=t;}
+  return d;
+}
+function sortHand(h){ // display order: spades,hearts,diamonds,clubs; rank desc
+  h.sort(function(a,b){return b.s-a.s||b.r-a.r});
+  return h;
+}
+function deal(){
+  var d=shuffle(makeDeck());
+  var hands=[[],[],[],[]],i;
+  for(i=0;i<52;i++)hands[i%4].push(d[i]); // hands[0]=N,1=E,2=S,3=W
+  return hands;
+}
+/* Hand evaluation lives in brain.js: Brain.evaluate(hand) */
+/* ---------- Auction ---------- */
+// call: {t:'pass'|'bid'|'x'|'xx', lvl, st, seat}
+function bidVal(c){return (c.lvl-1)*5+c.st}
+function lastBid(auction){
+  for(var i=auction.length-1;i>=0;i--)if(auction[i].t==='bid')return auction[i];
+  return null;
+}
+function legalInfo(auction,seat){
+  var hb=lastBid(auction),canX=false,canXX=false,i,c;
+  if(hb){
+    var agg=null; // last x/xx after last bid
+    for(i=auction.length-1;i>=0;i--){
+      c=auction[i];
+      if(c.t==='bid')break;
+      if(c.t==='x'||c.t==='xx'){agg=c;break;}
+    }
+    if(!agg&&side(hb.seat)!==side(seat))canX=true;
+    if(agg&&agg.t==='x'&&side(agg.seat)!==side(seat))canXX=true;
+  }
+  return {highBid:hb,canX:canX,canXX:canXX};
+}
+function cheapestLevel(auction,st){
+  var hb=lastBid(auction),min=hb?bidVal(hb):-1,lvl;
+  for(lvl=1;lvl<=7;lvl++)if((lvl-1)*5+st>min)return lvl;
+  return null;
+}
+function isLegalCall(auction,seat,call){
+  if(call.t==='pass')return true;
+  var info=legalInfo(auction,seat);
+  if(call.t==='x')return info.canX;
+  if(call.t==='xx')return info.canXX;
+  return !info.highBid||bidVal(call)>bidVal(info.highBid);
+}
+function auctionStatus(auction){
+  var cons=0,i,hasBid=false;
+  for(i=auction.length-1;i>=0;i--){
+    if(auction[i].t==='pass')cons++;else break;
+  }
+  for(i=0;i<auction.length;i++)if(auction[i].t==='bid'){hasBid=true;break;}
+  if(!hasBid&&auction.length>=4)return 'passedout';
+  if(hasBid&&cons>=3)return 'complete';
+  return 'ongoing';
+}
+function finalContract(auction){
+  var fb=lastBid(auction),dbl=0,i;
+  if(!fb)return null;
+  for(i=auction.length-1;i>=0;i--){
+    var c=auction[i];
+    if(c.t==='bid')break;
+    if(c.t==='x')dbl=1;
+    if(c.t==='xx')dbl=2;
+  }
+  return {lvl:fb.lvl,st:fb.st,dbl:dbl,bidder:fb.seat};
+}
+function determineDeclarer(auction){
+  var ct=finalContract(auction),i,c;
+  if(!ct)return null;
+  var ps=partner(ct.bidder);
+  for(i=0;i<auction.length;i++){
+    c=auction[i];
+    if(c.t==='bid'&&c.st===ct.st&&(c.seat===ct.bidder||c.seat===ps))return c.seat;
+  }
+  return ct.bidder;
+}
+function lastSuitBidBy(auction,seat){
+  for(var i=auction.length-1;i>=0;i--){
+    var c=auction[i];
+    if(c.t==='bid'&&c.seat===seat&&c.st<4)return c.st;
+  }
+  return null;
+}
+/* Bidding AI lives in brain.js: Brain.Brain.suggestBid(hand,auction,seat) */
+/* ============================================================
+   Scoring — vulnerability-aware, Chicago-capable.
+
+   scoreContract(ct, declarer, tricksDecl, opts)
+     opts.vul       true if the DECLARING side is vulnerable
+                    (drives game bonus, slam bonus, overtricks and penalties)
+     opts.carry     declaring side's part-score carried into this deal
+                    (Chicago only; 0 elsewhere)
+     opts.chicago   true in a Chicago session: an unfinished part-score
+                    carries forward instead of paying the duplicate 50
+     opts.finalDeal true on deal 4 of a Chicago session — a part-score
+                    made here is worth 100 instead of carrying forward
+   Omitting opts reproduces the old duplicate-style, not-vulnerable
+   behaviour exactly, so existing call sites and tests are unaffected.
+
+   Returns {points, side, lines, trickScore, madeGame, newCarry, made}
+     trickScore  below-the-line points earned this deal (0 if defeated)
+     madeGame    the carried total reached 100 -> game bonus paid, wipe carry
+     newCarry    declaring side's part-score after this deal
+   ============================================================ */
+function trickValue(st){return st<2?20:30}
+function slamBonus(lvl,vul){
+  if(lvl===6)return vul?750:500;
+  if(lvl===7)return vul?1500:1000;
+  return 0;
+}
+function undertrickPenalty(down,dbl,vul){
+  if(dbl===0)return down*(vul?100:50);
+  var pen;
+  if(vul)pen=200+(down-1)*300;                       // 200/500/800/1100...
+  else pen=down===1?100:down===2?300:500+(down-3)*300; // 100/300/500/800...
+  return dbl===2?pen*2:pen;
+}
+function scoreContract(ct,declarer,tricksDecl,opts){
+  opts=opts||{};
+  var vul=!!opts.vul,carry=opts.carry||0,finalDeal=!!opts.finalDeal,chicago=!!opts.chicago;
+  var need=6+ct.lvl,over=tricksDecl-need,tv=trickValue(ct.st),lines=[],pts,sideWon;
+  var label=ct.lvl+STRAINS[ct.st]+(ct.dbl===1?' X':ct.dbl===2?' XX':'')+' by '+SEATS[declarer]+(vul?'  (vulnerable)':'');
+  if(over>=0){
+    var base=(ct.st===4?ct.lvl*30+10:ct.lvl*tv)*(ct.dbl===1?2:ct.dbl===2?4:1);
+    var cum=carry+base,madeGame=cum>=100;
+    var bonus,bonusLabel;
+    if(madeGame){bonus=vul?500:300;bonusLabel='Game bonus';}
+    else if(chicago)
+      {bonus=finalDeal?100:0;bonusLabel='Part-score bonus (final deal)';}  // else it carries
+    else{bonus=50;bonusLabel='Part-score bonus';}
+    var ot=0;
+    if(over>0){
+      if(ct.dbl===0)ot=over*(ct.st===4?30:tv);
+      else if(ct.dbl===1)ot=over*(vul?200:100);
+      else ot=over*(vul?400:200);
+    }
+    var slam=slamBonus(ct.lvl,vul);
+    var insult=ct.dbl===1?50:ct.dbl===2?100:0;
+    pts=base+bonus+ot+slam+insult;sideWon=side(declarer);
+    lines.push('Contract: '+label);
+    lines.push('Result: MADE '+(over>0?'+'+over:'exactly'));
+    lines.push('Trick score: '+base+(ct.dbl?' (x'+(ct.dbl===1?2:4)+')':''));
+    if(carry)lines.push('Carried part-score: '+carry+'  → '+cum+' below the line');
+    if(bonus)lines.push(bonusLabel+': '+bonus);
+    if(ot)lines.push('Overtricks: '+ot);
+    if(slam)lines.push((ct.lvl===7?'Grand':'Small')+' slam bonus: '+slam);
+    if(insult)lines.push('Insult bonus: '+insult);
+    lines.push(sideWon+' scores '+pts);
+    return {points:pts,side:sideWon,lines:lines,made:true,
+            trickScore:base,madeGame:madeGame,
+            /* carry survives only if the part-score was neither converted to
+               game nor cashed for 100 on the final deal */
+            newCarry:(chicago&&!madeGame&&!finalDeal)?cum:0};
+  }
+  var down=-over,pen=undertrickPenalty(down,ct.dbl,vul);
+  pts=pen;sideWon=side(declarer)==='NS'?'EW':'NS';
+  lines.push('Contract: '+label);
+  lines.push('Result: DOWN '+down);
+  lines.push('Penalty: '+pen);
+  lines.push(sideWon+' scores '+pts);
+  return {points:pts,side:sideWon,lines:lines,made:false,
+          trickScore:0,madeGame:false,newCarry:carry};
+}
+/* ---------- Chicago (four-deal bridge) session rules ---------- */
+/* Vulnerability: deal 1 none, deals 2-3 dealer's side, deal 4 both. */
+function chicagoVul(dealNo,dealer){
+  if(dealNo<=1)return {NS:false,EW:false};
+  if(dealNo>=4)return {NS:true,EW:true};
+  var ds=side(dealer);
+  return {NS:ds==='NS',EW:ds==='EW'};
+}
+function isVul(dealNo,dealer,seat,mode){
+  if(mode!=='chicago')return false;              // endless mode is always not vulnerable
+  return chicagoVul(dealNo,dealer)[side(seat)];
+}
+/* ---------- Shared play rules (used by game flow AND brain.js) ---------- */
+function ofSuit(hand,s){var out=[];for(var i=0;i<hand.length;i++)if(hand[i].s===s)out.push(hand[i]);return out}
+function validCards(hand,ledSuit){
+  if(ledSuit===null||ledSuit===undefined)return hand.slice();
+  var f=ofSuit(hand,ledSuit);
+  return f.length?f:hand.slice();
+}
+function trickWinner(trick,trump){
+  var best=trick[0],i;
+  for(i=1;i<trick.length;i++){
+    var t=trick[i],bc=best.card,cc=t.card,led=trick[0].card.s;
+    if(trump!==null&&trump!==undefined){
+      if(cc.s===trump&&bc.s!==trump){best=t;continue}
+      if(cc.s===trump&&bc.s===trump&&cc.r>bc.r){best=t;continue}
+      if(bc.s===trump)continue;
+    }
+    if(cc.s===led&&bc.s!==led){best=t;continue}
+    if(cc.s===bc.s&&cc.r>bc.r)best=t;
+  }
+  return best;
+}
+/* Play AI lives in brain.js: Brain.choosePlay(G,seat) */
+/* ---------- Game state & flow ---------- */
+function setBrain(b){ // hot-swap the AI; contract documented in brain.js
+  if(b&&b.api===1&&typeof b.evaluate==='function'&&typeof b.suggestBid==='function'&&typeof b.choosePlay==='function'){Brain=b;return true}
+  return false;
+}
+var G=null;
+/* Speed scales the three animation delays. 'instant' resolves AI turns with
+   no pause, which is what makes the ~26% of deals where you are dummy
+   (and click nothing) bearable. */
+var SPEEDS={normal:1,fast:0.4,instant:0};
+var SPEED_ORDER=['normal','fast','instant'];
+/* UI.touch drives tap-select-then-confirm. Set once at init from the pointer
+   media query; kept as a plain boolean so tests can force either mode. */
+var UI={hints:true,speed:'normal',touch:false,selCard:null};
+function detectTouch(){
+  /* Only `(pointer:coarse)` is trustworthy. Do NOT fall back to
+     `'ontouchstart' in window` — desktop Chrome on Windows reports true for it
+     (it ships touch-event support for touchscreen laptops), which would force
+     two-tap play on ordinary mouse users. matchMedia exists in every browser
+     that can run this game, so its absence means a test harness: assume mouse. */
+  try{
+    if(typeof window!=='undefined'&&window.matchMedia)
+      return window.matchMedia('(pointer:coarse)').matches===true;
+  }catch(e){}
+  return false;
+}
+function delay(base){return Math.round(base*SPEEDS[UI.speed])}
+function loadJSON(k,fb){try{var v=JSON.parse(localStorage.getItem(k));return v||fb}catch(e){return fb}}
+function saveJSON(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+/* Persistent across sessions: endless running total, and the Chicago record. */
+var STATS=loadJSON('pb_stats',{endless:{NS:0,EW:0},deals:0,bestNS:null,sessions:0,wins:0,seen:false});
+function saveStats(){saveJSON('pb_stats',STATS)}
+/* ---------- Session (Chicago = 4 deals; endless = deal forever) ---------- */
+var SESSION=null;
+function newSession(mode){
+  SESSION={
+    mode:mode,
+    dealNo:1,
+    startDealer:(STATS.sessions||0)%4,
+    part:{NS:0,EW:0},                 // Chicago below-the-line carry
+    total:mode==='chicago'?{NS:0,EW:0}:{NS:STATS.endless.NS,EW:STATS.endless.EW},
+    history:[],
+    done:false
+  };
+}
+function sessionDealer(){
+  if(SESSION.mode==='chicago')return (SESSION.startDealer+SESSION.dealNo-1)%4;
+  return STATS.deals%4;
+}
+function isFinalDeal(){return SESSION.mode==='chicago'&&SESSION.dealNo===4}
+/* Pure: fold one deal's result into a session. Kept out of finishPlay so the
+   part-score bookkeeping can be unit-tested without a live game. */
+function applyDealResult(sess,declSide,res){
+  sess.total[res.side]+=res.points;
+  if(sess.mode==='chicago'&&res.made){
+    sess.part[declSide]=res.newCarry;
+    // A completed game draws a new line: BOTH sides lose their part-scores.
+    if(res.madeGame){sess.part.NS=0;sess.part.EW=0;}
+  }
+  return sess;
+}
+function newDeal(){
+  if(!SESSION)newSession('chicago');
+  UI.selCard=null;
+  var dealer=sessionDealer();
+  G={
+    token:(G?G.token:0)+1,
+    phase:'AUCTION',
+    hands:deal(),
+    dealer:dealer,
+    vul:SESSION.mode==='chicago'?chicagoVul(SESSION.dealNo,dealer):{NS:false,EW:false},
+    auction:[],aTurn:null,
+    contract:null,declarer:null,dummy:null,
+    trick:[],lead:null,pTurn:null,
+    tricksNS:0,tricksEW:0,trickNo:1,
+    dummyRevealed:false
+  };
+  var i;
+  for(i=0;i<4;i++)sortHand(G.hands[i]);
+  G.aTurn=G.dealer;
+  STATS.deals++;saveStats();
+  hideModal();
+  renderAll();
+  maybeAI();
+}
+/* Advance the session after a scored (or passed-out) deal. */
+function advanceDeal(counted){
+  if(SESSION.mode==='chicago'){
+    if(counted)SESSION.dealNo++;      // a passed-out deal is redealt by the same dealer
+    if(SESSION.dealNo>4){finishSession();return;}
+  }
+  newDeal();
+}
+function finishSession(){
+  SESSION.done=true;
+  var ns=SESSION.total.NS,ew=SESSION.total.EW;
+  SESSION.prevBest=STATS.bestNS;          // capture BEFORE updating, so the
+  SESSION.isBest=(STATS.bestNS===null||ns>STATS.bestNS);  // result screen can say "new best"
+  STATS.sessions++;
+  if(ns>ew)STATS.wins++;
+  if(SESSION.isBest)STATS.bestNS=ns;
+  saveStats();
+  renderAll();
+  showSessionResult();
+}
+function schedule(fn,ms){
+  var tok=G.token;
+  setTimeout(function(){if(G&&G.token===tok)fn();},delay(ms));
+}
+function humanActsNow(){
+  if(!G||G.phase!=='PLAY')return false;
+  var seat=G.pTurn;
+  if(seat===HUMAN&&G.dummy!==HUMAN)return true;
+  if(seat===G.dummy&&G.declarer===HUMAN)return true;
+  return false;
+}
+function maybeAI(){
+  if(!G)return;
+  if(G.phase==='AUCTION'){
+    if(auctionStatus(G.auction)!=='ongoing'){finishAuction();return}
+    if(G.aTurn!==HUMAN)schedule(aiBid,650);
+  }else if(G.phase==='PLAY'){
+    if(G.pTurn===null||G.pTurn===undefined)return; // trick being resolved
+    if(!humanActsNow())schedule(aiPlay,750);
+  }
+}
+function aiBid(){
+  if(!G||G.phase!=='AUCTION')return;
+  var s=Brain.suggestBid(G.hands[G.aTurn],G.auction,G.aTurn)||{t:'pass'};
+  var call={t:s.t,lvl:s.lvl,st:s.st};
+  if(!isLegalCall(G.auction,G.aTurn,call))call={t:'pass'}; // safety net
+  applyCall(call);
+}
+function aiPlay(){
+  if(!G||G.phase!=='PLAY'||G.pTurn===null||G.pTurn===undefined||humanActsNow())return;
+  var seat=G.pTurn,ch=Brain.choosePlay(G,seat);
+  applyPlay(seat,ch.card);
+}
+function applyCall(call){
+  call.seat=G.aTurn;
+  G.auction.push(call);
+  G.aTurn=nextSeat(G.aTurn);
+  renderAll();
+  if(auctionStatus(G.auction)==='ongoing')maybeAI();
+  else finishAuction();
+}
+function finishAuction(){
+  if(auctionStatus(G.auction)==='passedout'){
+    G.phase='SCORE';
+    renderAll();
+    // Chicago: a passed-out deal is redealt by the SAME dealer and does not
+    // consume one of the four deals.
+    pendingNext=function(){advanceDeal(false)};
+    showModal('Passed Out','All four players passed.\nNo score — redeal'+
+      (SESSION.mode==='chicago'?' (this does not use up one of the four deals).':'.'));
+    return;
+  }
+  G.contract=finalContract(G.auction);
+  G.declarer=determineDeclarer(G.auction);
+  G.dummy=partner(G.declarer);
+  G.phase='PLAY';
+  G.lead=nextSeat(G.declarer);
+  G.pTurn=G.lead;
+  renderAll();
+  maybeAI();
+}
+function applyPlay(seat,card){
+  UI.selCard=null;               // a card is leaving the hand — drop any selection
+  var h=G.hands[seat],idx=-1,i;
+  for(i=0;i<h.length;i++)if(h[i].s===card.s&&h[i].r===card.r){idx=i;break;}
+  if(idx<0)return;
+  h.splice(idx,1);
+  G.trick.push({seat:seat,card:card});
+  if(G.trickNo===1&&G.trick.length===1)G.dummyRevealed=true; // reveal dummy after opening lead
+  if(G.trick.length===4){
+    G.pTurn=null;
+    renderAll();
+    schedule(finishTrick,1100);
+  }else{
+    G.pTurn=nextSeat(seat);
+    renderAll();
+    maybeAI();
+  }
+}
+function finishTrick(){
+  var trump=G.contract.st<4?G.contract.st:null;
+  var win=trickWinner(G.trick,trump);
+  if(side(win.seat)==='NS')G.tricksNS++;else G.tricksEW++;
+  G.trick=[];G.lead=win.seat;G.pTurn=win.seat;G.trickNo++;
+  if(G.trickNo>13){finishPlay();return}
+  renderAll();
+  maybeAI();
+}
+function finishPlay(){
+  G.phase='SCORE';
+  var chicago=SESSION.mode==='chicago';
+  var declSide=side(G.declarer);
+  var tricksDecl=declSide==='NS'?G.tricksNS:G.tricksEW;
+  var res=scoreContract(G.contract,G.declarer,tricksDecl,{
+    vul:G.vul[declSide],
+    carry:chicago?SESSION.part[declSide]:0,
+    chicago:chicago,
+    finalDeal:isFinalDeal()
+  });
+  applyDealResult(SESSION,declSide,res);
+  SESSION.history.push({
+    deal:SESSION.dealNo,
+    label:G.contract.lvl+STRAINS[G.contract.st]+(G.contract.dbl===1?'X':G.contract.dbl===2?'XX':'')+
+          ' by '+SEATS[G.declarer],
+    side:res.side,points:res.points,made:res.made
+  });
+  if(!chicago){STATS.endless.NS=SESSION.total.NS;STATS.endless.EW=SESSION.total.EW;}
+  saveStats();
+  renderAll();
+  var last=chicago&&SESSION.dealNo===4;
+  pendingNext=function(){advanceDeal(true)};
+  showModal('Deal '+(chicago?SESSION.dealNo+' of 4':'')+' — '+res.side+' +'+res.points,
+            res.lines.join('\n')+
+            (chicago?'\n\nSession so far — NS '+SESSION.total.NS+' / EW '+SESSION.total.EW+
+              (SESSION.part.NS||SESSION.part.EW?'\nPart-score below the line — NS '+SESSION.part.NS+' / EW '+SESSION.part.EW:''):''),
+            last?'See Result':'Next Deal');
+}
+/* ================= UI (DOM lives only below this line) ================= */
+function el(id){return document.getElementById(id)}
+var PIP_POS={
+ 2:[[50,18],[50,82]],
+ 3:[[50,18],[50,50],[50,82]],
+ 4:[[30,18],[70,18],[30,82],[70,82]],
+ 5:[[30,18],[70,18],[50,50],[30,82],[70,82]],
+ 6:[[30,18],[70,18],[30,50],[70,50],[30,82],[70,82]],
+ 7:[[30,18],[70,18],[50,34],[30,50],[70,50],[30,82],[70,82]],
+ 8:[[30,18],[70,18],[50,34],[30,50],[70,50],[50,66],[30,82],[70,82]],
+ 9:[[30,16],[70,16],[30,39],[70,39],[50,50],[30,61],[70,61],[30,84],[70,84]],
+ 10:[[30,16],[70,16],[50,28],[30,39],[70,39],[30,61],[70,61],[50,72],[30,84],[70,84]]
+};
+function cardEl(card,small){
+  var d=document.createElement('div');
+  d.className='c'+(RED[card.s]?' red':'')+(small?' sm':'');
+  var idx='<div class="corner tl">'+RK[card.r-2]+'<small>'+SUITS[card.s]+'</small></div>'+
+          '<div class="corner br">'+RK[card.r-2]+'<small>'+SUITS[card.s]+'</small></div>';
+  var mid='',i;
+  if(card.r>=11&&card.r<=13){
+    mid='<div class="court">'+RK[card.r-2]+'<small>'+SUITS[card.s]+'</small></div>';
+  }else if(card.r===14){
+    mid='<div class="bigpip">'+SUITS[card.s]+'</div>';
+  }else{
+    var pos=PIP_POS[card.r]||[];
+    for(i=0;i<pos.length;i++)
+      mid+='<span class="pip'+(pos[i][1]>50?' flip':'')+'" style="left:'+pos[i][0]+'%;top:'+pos[i][1]+'%">'+SUITS[card.s]+'</span>';
+  }
+  d.innerHTML=idx+mid;
+  return d;
+}
+function backEl(small){
+  var d=document.createElement('div');
+  d.className='c back'+(small?' sm':'');
+  return d;
+}
+function renderHands(){
+  var seatIds=['handN','handE','handS','handW'];
+  for(var seat=0;seat<4;seat++){
+    var box=el(seatIds[seat]);
+    box.innerHTML='';
+    var hand=G.hands[seat];
+    var faceUp=(seat===HUMAN)||(G.dummyRevealed&&seat===G.dummy);
+    var acting=G.phase==='PLAY'&&humanActsNow()&&G.pTurn===seat;
+    var ledSuit=G.trick.length?G.trick[0].card.s:null;
+    var valid=acting?validCards(hand,ledSuit):[];
+    var hintCard=(acting&&UI.hints)?Brain.choosePlay(G,seat).card:null;
+    var i,d;
+    if(!faceUp){
+      if(seat===1||seat===3){
+        box.className='hand vfan';
+        for(i=0;i<hand.length;i++)box.appendChild(backEl(true)); // fan overlap: CSS .vfan .c
+      }else{
+        box.className='hand';
+        for(i=0;i<hand.length;i++)box.appendChild(backEl(true));
+      }
+      continue;
+    }
+    sortHand(hand);
+    var vertical=(seat===1||seat===3);
+    var small=(seat!==HUMAN);
+    box.className=vertical?'hand vfan':'hand';
+    for(i=0;i<hand.length;i++){
+      var c=hand[i];
+      d=cardEl(c,small); // vertical fan overlap now lives in CSS (.vfan .c), so it scales
+      if(acting){
+        if(valid.indexOf(c)>=0){
+          d.classList.add('playable');
+          (function(dd,cc,ss){dd.addEventListener('click',function(){onHumanCard(ss,cc);});})(d,c,seat);
+        }else d.classList.add('dim');
+        if(UI.selCard===c)d.classList.add('sel');
+        if(hintCard&&c.s===hintCard.s&&c.r===hintCard.r)d.classList.add('hintcard');
+      }
+      box.appendChild(d);
+    }
+  }
+}
+function renderTrick(){
+  var map=['tsN','tsE','tsS','tsW'];
+  for(var s=0;s<4;s++){
+    var slot=el(map[s]);
+    slot.innerHTML='';
+    for(var i=0;i<G.trick.length;i++)
+      if(G.trick[i].seat===s)slot.appendChild(cardEl(G.trick[i].card,false));
+  }
+}
+function vulText(v){
+  if(v.NS&&v.EW)return 'Both';
+  if(v.NS)return 'NS';
+  if(v.EW)return 'EW';
+  return 'None';
+}
+function renderPanel(){
+  var chicago=SESSION.mode==='chicago';
+  el('stDeal').textContent=chicago?SESSION.dealNo+' of 4':'#'+STATS.deals;
+  var vt=vulText(G.vul);
+  el('stVul').textContent=vt;
+  el('stVul').className=(vt==='None'?'':'vul');
+  el('stDealer').textContent=SEATS[G.dealer];
+  el('stContract').textContent=G.contract?
+    G.contract.lvl+STRAINS[G.contract.st]+(G.contract.dbl===1?' X':G.contract.dbl===2?' XX':''):'—';
+  el('stDeclarer').textContent=G.declarer===null?'—':SEATS[G.declarer];
+  el('stTricks').textContent=G.tricksNS+' / '+G.tricksEW;
+  el('stScore').textContent=SESSION.total.NS+' / '+SESSION.total.EW;
+  el('rowPart').style.display=chicago?'flex':'none';
+  el('stPart').textContent=SESSION.part.NS+' / '+SESSION.part.EW;
+  // compact strip shown instead of the panel on phones
+  el('tbDeal').textContent=chicago?SESSION.dealNo+'/4':'#'+STATS.deals;
+  el('tbVul').textContent=vt;
+  el('tbVul').className=(vt==='None'?'':'vul');
+  el('tbContract').textContent=el('stContract').textContent;
+  el('tbTricks').textContent=G.tricksNS+'/'+G.tricksEW;
+}
+function toggleDrawer(open){
+  var p=el('panel');
+  if(open===undefined)open=!p.classList.contains('open');
+  p.classList.toggle('open',open);
+}
+function renderAuctionLog(){
+  var box=el('auctionLog');
+  var colOf={3:0,0:1,1:2,2:3}; // display columns: W,N,E,S
+  var html='<table><tr><th>W</th><th>N</th><th>E</th><th>S</th></tr>';
+  var col=colOf[G.dealer],row=['','','',''],i;
+  function flush(){html+='<tr><td>'+row.join('</td><td>')+'</td></tr>';row=['','','',''];}
+  for(i=0;i<G.auction.length;i++){
+    row[col]=callStr(G.auction[i]);
+    col=(col+1)%4;
+    if(col===0)flush();
+  }
+  if(row.join('')!=='')flush();
+  box.innerHTML=html+'</table>';
+  box.scrollTop=box.scrollHeight;
+}
+function renderBidBox(){
+  var box=el('bidBox');
+  if(G.phase!=='AUCTION'){box.style.display='none';return;}
+  box.style.display='block';
+  var info=legalInfo(G.auction,HUMAN);
+  var myTurn=G.aTurn===HUMAN;
+  var h='<h3>Bidding Box'+(myTurn?' — your call':' — waiting\u2026')+'</h3>';
+  for(var lvl=1;lvl<=7;lvl++){
+    h+='<div class="brow"><span style="width:14px;color:#9fc4b4;font-size:12px;line-height:32px">'+lvl+'</span>';
+    for(var st=0;st<5;st++){
+      var ok=myTurn&&isLegalCall(G.auction,HUMAN,{t:'bid',lvl:lvl,st:st});
+      h+='<button class="bbtn'+(st===1||st===2?' red':'')+'" data-lvl="'+lvl+'" data-st="'+st+'"'+(ok?'':' disabled')+'>'+STRAINS[st]+'</button>';
+    }
+    h+='</div>';
+  }
+  h+='<div class="brow" style="justify-content:center">';
+  h+='<button class="bbtn wide" data-act="pass"'+(myTurn?'':' disabled')+'>Pass</button>';
+  h+='<button class="bbtn wide red" data-act="x"'+((myTurn&&info.canX)?'':' disabled')+'>X</button>';
+  h+='<button class="bbtn wide red" data-act="xx"'+((myTurn&&info.canXX)?'':' disabled')+'>XX</button>';
+  h+='</div><div id="bidHint"></div>';
+  box.innerHTML=h;
+  var btns=box.querySelectorAll('button'),i;
+  for(i=0;i<btns.length;i++)btns[i].addEventListener('click',onBidClick);
+  var hint=el('bidHint');
+  if(myTurn&&UI.hints){
+    var s=Brain.suggestBid(G.hands[HUMAN],G.auction,HUMAN)||{t:'pass',reason:'No clear call'};
+    hint.textContent='Hint: '+(s.t==='pass'?'Pass':s.t==='x'?'Double':s.t==='xx'?'Redouble':s.lvl+STRAINS[s.st])+' — '+s.reason;
+  }
+}
+function renderHint(){
+  var bar=el('hintBar');
+  if(G.phase==='PLAY'&&UI.selCard&&humanActsNow()){
+    bar.textContent='Tap '+cardStr(UI.selCard)+' again to play it';
+    bar.style.display='block';
+    return;
+  }
+  if(G.phase==='PLAY'&&UI.hints&&humanActsNow()){
+    var seat=G.pTurn;
+    var ch=Brain.choosePlay(G,seat);
+    bar.textContent='Hint ('+(seat===HUMAN?'your hand':'dummy')+'): play '+cardStr(ch.card)+' — '+ch.reason;
+    bar.style.display='block';
+  }else bar.style.display='none';
+}
+function renderBanner(){
+  var b=el('contractBanner');
+  if(G.phase!=='AUCTION'&&G.contract){
+    b.textContent=G.contract.lvl+STRAINS[G.contract.st]+(G.contract.dbl===1?' X':G.contract.dbl===2?' XX':'')+
+      ' — Declarer: '+SEATS[G.declarer];
+    b.style.display='block';
+  }else b.style.display='none';
+}
+function renderAll(){
+  if(!G||typeof document==='undefined')return;
+  renderHands();renderTrick();renderPanel();renderAuctionLog();renderBidBox();renderHint();renderBanner();
+  for(var s=0;s<4;s++){
+    var tag=el('seat'+SEATS[s]).querySelector('.name-tag');
+    var on=(G.phase==='AUCTION'&&G.aTurn===s)||(G.phase==='PLAY'&&G.pTurn===s);
+    var label=s===HUMAN?'South (You)':SEATS[s]==='N'?'North':SEATS[s]==='E'?'East':'West';
+    if(G.dummyRevealed&&G.dummy===s)label+=' (Dummy)';
+    if(G.declarer===s&&G.phase!=='AUCTION')label+=' \u2605';
+    tag.innerHTML=label+(on?'<span class="turn"></span>':'');
+  }
+}
+var pendingNext=null;   // what the modal's button should do
+function showModal(title,body,btnLabel){
+  el('mTitle').textContent=title;
+  el('mBody').textContent=body;
+  el('mBtn').textContent=btnLabel||'Next Deal';
+  el('modal').style.display='flex';
+}
+function showSessionResult(){
+  var ns=SESSION.total.NS,ew=SESSION.total.EW;
+  var verdict=ns>ew?'You win!':ns<ew?'East-West win':'Tied';
+  var lines=['Final — NS '+ns+'  /  EW '+ew,''];
+  for(var i=0;i<SESSION.history.length;i++){
+    var h=SESSION.history[i];
+    lines.push('Deal '+h.deal+':  '+h.label+'  '+(h.made?'made':'down')+'  →  '+h.side+' +'+h.points);
+  }
+  lines.push('');
+  lines.push('Your best session: '+STATS.bestNS+(SESSION.isBest?'   ← new best!':''));
+  lines.push('Sessions played: '+STATS.sessions+'   Won: '+STATS.wins);
+  pendingNext=function(){newSession('chicago');newDeal();};
+  showModal(verdict,lines.join('\n'),'Play again');
+}
+function showHelp(){el('help').style.display='flex'}
+function hideHelp(){
+  el('help').style.display='none';
+  if(!STATS.seen){STATS.seen=true;saveStats();}
+}
+function hideModal(){
+  if(typeof document!=='undefined'&&el('modal'))el('modal').style.display='none';
+}
+function onHumanCard(seat,card){
+  if(!humanActsNow()||G.pTurn!==seat)return;
+  var ledSuit=G.trick.length?G.trick[0].card.s:null;
+  if(validCards(G.hands[seat],ledSuit).indexOf(card)<0)return; // must follow suit
+  /* Touch: first tap selects, second tap on the SAME card plays it. Cards are
+     small and overlapped on a phone, so a single tap is too easy to misfire.
+     Mouse/trackpad keeps the one-click behaviour. */
+  if(UI.touch&&UI.selCard!==card){
+    UI.selCard=card;
+    renderAll();
+    return;
+  }
+  UI.selCard=null;
+  applyPlay(seat,card);
+}
+function onBidClick(e){
+  var b=e.currentTarget;
+  if(!G||G.phase!=='AUCTION'||G.aTurn!==HUMAN)return;
+  var call;
+  if(b.dataset.act)call={t:b.dataset.act};
+  else call={t:'bid',lvl:+b.dataset.lvl,st:+b.dataset.st};
+  if(!isLegalCall(G.auction,HUMAN,call))return;
+  applyCall(call);
+}
+function setModeLabel(){
+  el('btnMode').textContent=SESSION.mode==='chicago'?'Chicago':'Endless';
+  el('btnMode').classList.toggle('on',SESSION.mode==='chicago');
+}
+function setSpeedLabel(){
+  var s=UI.speed;
+  el('btnSpeed').textContent='Speed: '+s.charAt(0).toUpperCase()+s.slice(1);
+  el('btnSpeed').classList.toggle('on',s!=='normal');
+}
+function init(){
+  UI.touch=detectTouch();
+  newSession('chicago');
+  el('btnNew').addEventListener('click',function(){
+    // In Chicago this abandons the current session and starts a fresh one.
+    if(SESSION.mode==='chicago')newSession('chicago');
+    toggleDrawer(false);
+    newDeal();
+  });
+  el('btnHints').addEventListener('click',function(){
+    UI.hints=!UI.hints;
+    this.textContent='Hints: '+(UI.hints?'ON':'OFF');
+    this.classList.toggle('on',UI.hints);
+    renderAll();
+  });
+  el('btnMode').addEventListener('click',function(){
+    newSession(SESSION.mode==='chicago'?'endless':'chicago');
+    setModeLabel();
+    toggleDrawer(false);
+    newDeal();
+  });
+  el('btnSpeed').addEventListener('click',function(){
+    UI.speed=SPEED_ORDER[(SPEED_ORDER.indexOf(UI.speed)+1)%SPEED_ORDER.length];
+    setSpeedLabel();
+    // Deliberately NOT re-arming maybeAI() here: a timer may already be in
+    // flight, and a second one would double-play a card. The new speed takes
+    // effect from the next scheduled action.
+  });
+  el('btnHelp').addEventListener('click',function(){toggleDrawer(false);showHelp();});
+  el('helpBtn').addEventListener('click',hideHelp);
+  el('btnDrawer').addEventListener('click',function(){toggleDrawer();});
+  el('panelClose').addEventListener('click',function(){toggleDrawer(false);});
+  el('mBtn').addEventListener('click',function(){
+    hideModal();
+    var fn=pendingNext;pendingNext=null;
+    if(fn)fn();else newDeal();
+  });
+  el('btnHints').classList.add('on');
+  setModeLabel();setSpeedLabel();
+  newDeal();
+  if(!STATS.seen)showHelp();   // first run: the welcome IS the instructions
+}
+/* ================= Correctness harness ================= */
+function mkHand(arr){var h=[];for(var i=0;i<arr.length;i++)h.push({s:arr[i][0],r:arr[i][1]});return h}
+function auc(spec){ // e.g. "N:1H E:P S:4H W:P" ; X=double, R=redouble, strains C D H S N
+  var sm={C:0,D:1,H:2,S:3,N:4},out=[],parts=spec.split(/\s+/),i;
+  for(i=0;i<parts.length;i++){
+    var seg=parts[i].split(':'),v=seg[1],call;
+    if(v==='P')call={t:'pass'};
+    else if(v==='X')call={t:'x'};
+    else if(v==='R')call={t:'xx'};
+    else call={t:'bid',lvl:+v.charAt(0),st:sm[v.charAt(1)]};
+    call.seat=SEATS.indexOf(seg[0]);
+    out.push(call);
+  }
+  return out;
+}
+function fakeG(o){
+  return {hands:o.hands,trick:o.trick||[],contract:o.contract||{lvl:4,st:3,dbl:0,bidder:2},
+    declarer:o.declarer===undefined?2:o.declarer,auction:o.auction||[]};
+}
+function runTests(){
+  var results=[];
+  function t(name,fn){
+    try{results.push({name:name,pass:fn()===true,err:null});}
+    catch(e){results.push({name:name,pass:false,err:String(e)});}
+  }
+  /* brain contract */
+  t('Brain implements contract api 1',function(){
+    return typeof Brain==='object'&&Brain.api===1&&typeof Brain.version==='string'&&
+      typeof Brain.evaluate==='function'&&typeof Brain.suggestBid==='function'&&typeof Brain.choosePlay==='function';});
+  t('setBrain rejects invalid, accepts valid brain',function(){
+    var old=Brain,bad=setBrain({api:1}),ok=setBrain(old);return bad===false&&ok===true;});
+  t('Brain.suggestBid always explains (reason string)',function(){
+    var h=mkHand([[3,14],[3,13],[3,12],[3,5],[3,4],[2,5],[2,4],[2,3],[1,13],[1,3],[1,2],[0,11],[0,2]]);
+    var s=Brain.suggestBid(h,[],2);return typeof s.reason==='string'&&s.reason.length>0;});
+  /* hand evaluation */
+  t('HCP count A+K+Q+J=10',function(){
+    return Brain.evaluate(mkHand([[3,14],[3,13],[2,12],[1,11]])).hcp===10;});
+  t('Distribution void+void+singleton+singleton=10',function(){
+    return Brain.evaluate(mkHand([[3,14],[2,2]])).dist===10;});
+  t('Balanced 4-3-3-3 detected',function(){
+    return Brain.evaluate(mkHand([[3,14],[3,5],[3,4],[3,3],[2,5],[2,4],[2,3],[1,6],[1,5],[1,4],[0,7],[0,6],[0,5]])).balanced===true;});
+  /* bidding legality */
+  t('After 2H: 2D illegal, 2S/2NT/3C legal',function(){
+    var a=auc('N:2H');
+    return !isLegalCall(a,1,{t:'bid',lvl:2,st:1})&&
+      isLegalCall(a,1,{t:'bid',lvl:2,st:3})&&
+      isLegalCall(a,1,{t:'bid',lvl:2,st:4})&&
+      isLegalCall(a,1,{t:'bid',lvl:3,st:0});});
+  t('After 2NT: only 3-level+ bids legal',function(){
+    var a=auc('N:2N');
+    return !isLegalCall(a,1,{t:'bid',lvl:2,st:3})&&isLegalCall(a,1,{t:'bid',lvl:3,st:0});});
+  t('Double only vs opponent bid',function(){
+    var a=auc('W:1H N:P E:P');
+    return legalInfo(a,2).canX===true&&legalInfo(a,3).canX===false;});
+  t('Redouble only vs opponent double',function(){
+    var a=auc('S:1H W:X N:P E:P');
+    return legalInfo(a,2).canXX===true&&legalInfo(a,1).canXX===false;});
+  /* auction resolution */
+  t('Auction complete after bid + 3 passes',function(){
+    return auctionStatus(auc('N:1H E:P S:P W:P'))==='complete';});
+  t('Passed out after 4 passes',function(){
+    return auctionStatus(auc('N:P E:P S:P W:P'))==='passedout';});
+  t('Auction ongoing after bid + 2 passes',function(){
+    return auctionStatus(auc('N:1H E:P S:P'))==='ongoing';});
+  t('Declarer = first in partnership to name strain (N)',function(){
+    return determineDeclarer(auc('N:1H E:P S:4H W:P N:P E:P'))===0;});
+  t('Declarer determined for EW pair (E)',function(){
+    return determineDeclarer(auc('N:P E:1H S:P W:2H N:P E:P S:P'))===1;});
+  t('Contract captures double state',function(){
+    var ct=finalContract(auc('S:1H W:X N:P E:P S:P W:P N:P'));
+    return ct.lvl===1&&ct.st===2&&ct.dbl===1;});
+  /* SAYC suggestions */
+  t('Balanced 16 HCP opens 1NT',function(){
+    var h=mkHand([[3,14],[3,13],[3,4],[3,3],[2,14],[2,5],[2,4],[1,12],[1,6],[1,5],[0,13],[0,9],[0,8]]);
+    var s=Brain.suggestBid(h,[],0);
+    return s.t==='bid'&&s.lvl===1&&s.st===4;});
+  t('13 pts + 5 spades opens 1S',function(){
+    var h=mkHand([[3,14],[3,13],[3,12],[3,5],[3,4],[2,5],[2,4],[2,3],[1,13],[1,3],[1,2],[0,11],[0,2]]);
+    var s=Brain.suggestBid(h,[],2);
+    return s.t==='bid'&&s.lvl===1&&s.st===3;});
+  t('Weak hand (<12) passes as opener',function(){
+    var h=mkHand([[3,14],[3,5],[3,4],[3,3],[2,12],[2,5],[2,4],[1,6],[1,5],[1,4],[0,11],[0,6],[0,5]]);
+    return Brain.suggestBid(h,[],0).t==='pass';});
+  t('Responder raises partner major 6-9 with support',function(){
+    var h=mkHand([[2,13],[2,5],[2,4],[3,12],[3,3],[3,2],[1,11],[1,5],[1,4],[1,3],[0,13],[0,9],[0,2]]);
+    var s=Brain.suggestBid(h,auc('N:1H'),2);
+    return s.t==='bid'&&s.lvl===2&&s.st===2;});
+  t('Responder 6-9 no fit bids 1NT',function(){
+    var h=mkHand([[3,5],[3,4],[2,13],[2,4],[2,3],[1,12],[1,5],[1,4],[0,12],[0,10],[0,9],[0,8],[0,7]]);
+    var s=Brain.suggestBid(h,auc('N:1S'),2);
+    return s.t==='bid'&&s.st===4&&s.lvl===1;});
+  t('Overcall with 10+ and good 5-card suit',function(){
+    var h=mkHand([[2,13],[2,12],[2,5],[2,4],[2,3],[3,5],[3,4],[3,2],[1,5],[1,3],[0,13],[0,11],[0,2]]);
+    var s=Brain.suggestBid(h,auc('N:1D'),2);
+    return s.t==='bid'&&s.st===2&&s.lvl===1;});
+  t('Minimum opener passes after single raise',function(){
+    var h=mkHand([[3,14],[3,13],[3,12],[3,5],[3,4],[2,5],[2,4],[2,3],[1,13],[1,3],[1,2],[0,11],[0,2]]);
+    var s=Brain.suggestBid(h,auc('S:1S W:P N:2S E:P'),2);
+    return s.t==='pass';});
+  /* touch detection */
+  t('detectTouch returns a strict boolean (never a truthy object)',function(){
+    return detectTouch()===true||detectTouch()===false;});
+  t('UI.selCard starts clear and UI.touch is boolean',function(){
+    return UI.selCard===null&&(UI.touch===true||UI.touch===false);});
+  /* conventions (I1) — Stayman */
+  // S: A972  H: KQ83  D: 74  C: 632   (10 HCP, 4-4 majors)
+  var STAY44=mkHand([[3,14],[3,9],[3,7],[3,2],[2,13],[2,12],[2,8],[2,3],[1,7],[1,4],[0,6],[0,3],[0,2]]);
+  t('Stayman: 4-4 majors opposite 1NT bids 2C',function(){
+    var s=Brain.suggestBid(STAY44,auc('N:1N'),2);
+    return s.t==='bid'&&s.lvl===2&&s.st===0;});
+  t('No 4-card major opposite 1NT → natural 3NT, not Stayman',function(){
+    var h=mkHand([[3,14],[3,9],[3,7],[2,13],[2,12],[2,8],[1,14],[1,7],[1,4],[1,3],[0,13],[0,6],[0,3]]);
+    var s=Brain.suggestBid(h,auc('N:1N'),2);
+    return s.t==='bid'&&s.st===4;});
+  t('Stayman reply: 4 hearts → 2H',function(){
+    var h=mkHand([[3,13],[3,5],[3,4],[2,14],[2,12],[2,9],[2,6],[1,14],[1,8],[1,3],[0,14],[0,9],[0,4]]);
+    var s=Brain.suggestBid(h,auc('N:1N E:P S:2C W:P'),0);
+    return s.t==='bid'&&s.lvl===2&&s.st===2;});
+  t('Stayman reply: 4 spades, no 4 hearts → 2S',function(){
+    var h=mkHand([[3,14],[3,12],[3,9],[3,6],[2,13],[2,5],[2,4],[1,14],[1,8],[1,3],[0,14],[0,9],[0,4]]);
+    var s=Brain.suggestBid(h,auc('N:1N E:P S:2C W:P'),0);
+    return s.t==='bid'&&s.lvl===2&&s.st===3;});
+  t('Stayman reply: no 4-card major → 2D',function(){
+    var h=mkHand([[3,14],[3,12],[3,9],[2,13],[2,5],[2,4],[1,14],[1,8],[1,7],[1,3],[0,14],[0,9],[0,4]]);
+    var s=Brain.suggestBid(h,auc('N:1N E:P S:2C W:P'),0);
+    return s.t==='bid'&&s.lvl===2&&s.st===1;});
+  t('Stayman: fit found + 10 pts → bid the major game',function(){
+    var s=Brain.suggestBid(STAY44,auc('N:1N E:P S:2C W:P N:2H E:P'),2);
+    return s.t==='bid'&&s.lvl===4&&s.st===2;});
+  t('Stayman: no fit (2D) → 3NT',function(){
+    var s=Brain.suggestBid(STAY44,auc('N:1N E:P S:2C W:P N:2D E:P'),2);
+    return s.t==='bid'&&s.lvl===3&&s.st===4;});
+  /* conventions (I1) — Blackwood */
+  // S: KQJ85  H: AK4  D: A2  C: AK3  — 24 HCP, 3 aces
+  var BIG=mkHand([[3,13],[3,12],[3,11],[3,8],[3,5],[2,14],[2,13],[2,4],[1,14],[1,2],[0,14],[0,13],[0,3]]);
+  t('Blackwood: big hand with an agreed fit asks 4NT',function(){
+    var s=Brain.suggestBid(BIG,auc('S:1S W:P N:2S E:P'),2);
+    return s.t==='bid'&&s.lvl===4&&s.st===4;});
+  t('Blackwood reply: 2 aces → 5H',function(){
+    var h=mkHand([[3,14],[3,9],[3,6],[2,14],[2,7],[2,3],[1,13],[1,8],[1,5],[1,4],[0,12],[0,9],[0,2]]);
+    var s=Brain.suggestBid(h,auc('S:1S W:P N:2S E:P S:4N W:P'),0);
+    return s.t==='bid'&&s.lvl===5&&s.st===2;});
+  t('Blackwood reply: 0 aces → 5C',function(){
+    var h=mkHand([[3,13],[3,9],[3,6],[2,12],[2,7],[2,3],[1,13],[1,8],[1,5],[1,4],[0,12],[0,9],[0,2]]);
+    var s=Brain.suggestBid(h,auc('S:1S W:P N:2S E:P S:4N W:P'),0);
+    return s.t==='bid'&&s.lvl===5&&s.st===0;});
+  t('Blackwood: 3+1 aces → bid the small slam',function(){
+    var s=Brain.suggestBid(BIG,auc('S:1S W:P N:2S E:P S:4N W:P N:5D E:P'),2);
+    return s.t==='bid'&&s.lvl===6&&s.st===3;});
+  t('Blackwood: 3 aces + partner’s 5C(=0) → one missing, slam is right',function(){
+    var s=Brain.suggestBid(BIG,auc('S:1S W:P N:2S E:P S:4N W:P N:5C E:P'),2);
+    return s.t==='bid'&&s.lvl===6&&s.st===3;});
+  t('Blackwood: two aces missing → sign off below slam',function(){
+    // S: KQJ85  H: AK4  D: KQ  C: AQ3 — 24 HCP but only 2 aces
+    var h2=mkHand([[3,13],[3,12],[3,11],[3,8],[3,5],[2,14],[2,13],[2,4],[1,13],[1,12],[0,14],[0,12],[0,3]]);
+    var s=Brain.suggestBid(h2,auc('S:1S W:P N:2S E:P S:4N W:P N:5C E:P'),2);
+    return !(s.t==='bid'&&s.lvl>=6);});
+  t('4NT with no suit ever bid is natural, not Blackwood',function(){
+    var h=mkHand([[3,14],[3,9],[3,6],[2,14],[2,7],[2,3],[1,13],[1,8],[1,5],[1,4],[0,12],[0,9],[0,2]]);
+    var s=Brain.suggestBid(h,auc('N:1N E:P S:4N W:P'),0);
+    return !(s.t==='bid'&&s.lvl===5&&s.st<=3);});
+  t('Every convention bid still carries a reason string',function(){
+    var seqs=[auc('N:1N'),auc('N:1N E:P S:2C W:P'),auc('S:1S W:P N:2S E:P')];
+    var hs=[STAY44,STAY44,BIG],k;
+    for(k=0;k<seqs.length;k++){
+      var s=Brain.suggestBid(hs[k],seqs[k],k===1?0:2);
+      if(typeof s.reason!=='string'||!s.reason.length)return false;
+    }
+    return true;});
+  /* play rules */
+  t('Must follow suit',function(){
+    var v=validCards(mkHand([[0,14],[2,13]]),0);
+    return v.length===1&&v[0].s===0&&v[0].r===14;});
+  t('Highest of led suit wins',function(){
+    var tr=[{seat:0,card:{s:3,r:13}},{seat:1,card:{s:3,r:14}},{seat:2,card:{s:3,r:2}},{seat:3,card:{s:3,r:5}}];
+    return trickWinner(tr,null).seat===1;});
+  t('Trump beats side suit; higher trump wins',function(){
+    var tr=[{seat:0,card:{s:3,r:14}},{seat:1,card:{s:2,r:2}},{seat:2,card:{s:3,r:13}},{seat:3,card:{s:2,r:3}}];
+    return trickWinner(tr,2).seat===3;});
+  t('Second hand low',function(){
+    var g=fakeG({hands:[[],[],[],mkHand([[1,13],[1,9],[1,2],[3,5]])],
+      trick:[{seat:0,card:{s:1,r:5}}],contract:{lvl:4,st:3,dbl:0,bidder:2},declarer:2});
+    var ch=Brain.choosePlay(g,3);
+    return ch.card.s===1&&ch.card.r===2;});
+  t('Cover an honor with an honor',function(){
+    var g=fakeG({hands:[[],mkHand([[1,12],[1,3],[3,5]]),[],[]],
+      trick:[{seat:0,card:{s:1,r:11}}],contract:{lvl:4,st:3,dbl:0,bidder:2},declarer:2});
+    var ch=Brain.choosePlay(g,1);
+    return ch.card.s===1&&ch.card.r===12;});
+  t('Third hand high (cheapest winner)',function(){
+    var g=fakeG({hands:[[],mkHand([[1,14],[1,9],[3,5]]),[],[]],
+      trick:[{seat:3,card:{s:1,r:5}},{seat:0,card:{s:1,r:7}}],
+      contract:{lvl:4,st:3,dbl:0,bidder:2},declarer:2});
+    var ch=Brain.choosePlay(g,1);
+    return ch.card.s===1&&ch.card.r===9;});
+  t('Fourth seat: partner winning -> play low',function(){
+    var g=fakeG({hands:[[],[],[],mkHand([[1,14],[1,4],[3,5]])],
+      trick:[{seat:0,card:{s:1,r:2}},{seat:1,card:{s:1,r:13}},{seat:2,card:{s:1,r:5}}],
+      contract:{lvl:4,st:3,dbl:0,bidder:2},declarer:2});
+    var ch=Brain.choosePlay(g,3);
+    return ch.card.s===1&&ch.card.r===4;});
+  t('Fourth seat: win cheaply when behind',function(){
+    var g=fakeG({hands:[[],[],mkHand([[1,13],[1,4],[3,5]]),[]],
+      trick:[{seat:3,card:{s:1,r:12}},{seat:0,card:{s:1,r:2}},{seat:1,card:{s:1,r:3}}],
+      contract:{lvl:4,st:3,dbl:0,bidder:2},declarer:2});
+    var ch=Brain.choosePlay(g,2);
+    return ch.card.s===1&&ch.card.r===13;});
+  t('Ruff when void and partner not winning',function(){
+    var g=fakeG({hands:[[],[],mkHand([[3,2],[3,5],[0,9]]),[]],
+      trick:[{seat:3,card:{s:1,r:14}},{seat:0,card:{s:1,r:4}},{seat:1,card:{s:1,r:3}}],
+      contract:{lvl:4,st:3,dbl:0,bidder:2},declarer:2});
+    var ch=Brain.choosePlay(g,2);
+    return ch.card.s===3&&ch.card.r===2;});
+  t('Opening lead: fourth-best of longest suit (defense)',function(){
+    var g=fakeG({hands:[[],[],[],mkHand([[0,13],[0,8],[0,6],[0,4],[0,2],[3,12],[3,5],[3,2],[1,11],[1,9],[1,3],[2,9],[2,2]])],
+      trick:[],contract:{lvl:4,st:2,dbl:0,bidder:2},declarer:2,
+      auction:auc('N:P E:P S:4H W:P N:P E:P')});
+    var ch=Brain.choosePlay(g,3);
+    return ch.card.s===0&&ch.card.r===4;});
+  /* scoring */
+  t('3NT making exactly = 400',function(){
+    var r=scoreContract({lvl:3,st:4,dbl:0,bidder:2},2,9);
+    return r.points===400&&r.side==='NS';});
+  t('4H doubled making 5 = 690',function(){
+    return scoreContract({lvl:4,st:2,dbl:1,bidder:2},2,11).points===690;});
+  t('Down 2 doubled = defenders 300',function(){
+    var r=scoreContract({lvl:4,st:2,dbl:1,bidder:2},2,8);
+    return r.points===300&&r.side==='EW';});
+  t('Down 1 undoubled = defenders 50',function(){
+    return scoreContract({lvl:2,st:3,dbl:0,bidder:0},0,7).points===50;});
+  /* scoring — slams (were entirely unscored before v1.1) */
+  t('6NT making = 990 (190 + 300 game + 500 slam)',function(){
+    return scoreContract({lvl:6,st:4,dbl:0,bidder:2},2,12).points===990;});
+  t('6S vulnerable making = 1430 (180 + 500 + 750)',function(){
+    return scoreContract({lvl:6,st:3,dbl:0,bidder:2},2,12,{vul:true}).points===1430;});
+  t('7NT making = 1520 (220 + 300 + 1000 grand)',function(){
+    return scoreContract({lvl:7,st:4,dbl:0,bidder:2},2,13).points===1520;});
+  t('7H vulnerable making = 2210 (210 + 500 + 1500)',function(){
+    return scoreContract({lvl:7,st:2,dbl:0,bidder:2},2,13,{vul:true}).points===2210;});
+  t('5C making is NOT a slam (100 + 300, no bonus)',function(){
+    return scoreContract({lvl:5,st:0,dbl:0,bidder:2},2,11).points===400;});
+  /* scoring — vulnerability */
+  t('4H vulnerable making exactly = 620 (120 + 500)',function(){
+    return scoreContract({lvl:4,st:2,dbl:0,bidder:2},2,10,{vul:true}).points===620;});
+  t('Vulnerable down 1 undoubled = 100',function(){
+    return scoreContract({lvl:2,st:3,dbl:0,bidder:0},0,7,{vul:true}).points===100;});
+  t('Vulnerable doubled down 2 = 500',function(){
+    return scoreContract({lvl:4,st:2,dbl:1,bidder:2},2,8,{vul:true}).points===500;});
+  t('Vulnerable doubled down 3 = 800',function(){
+    return scoreContract({lvl:4,st:2,dbl:1,bidder:2},2,7,{vul:true}).points===800;});
+  t('4HX+1 vul = 990 (240 + 500 game + 200 overtrick + 50 insult)',function(){
+    return scoreContract({lvl:4,st:2,dbl:1,bidder:2},2,11,{vul:true}).points===990;});
+  t('Redoubled non-vul down 2 = 600 (2x doubled 300)',function(){
+    return scoreContract({lvl:4,st:2,dbl:2,bidder:2},2,8).points===600;});
+  /* scoring — Chicago part-score carry */
+  t('Chicago: part-score carries, no 50 bonus',function(){
+    var r=scoreContract({lvl:2,st:2,dbl:0,bidder:2},2,8,{chicago:true});
+    return r.points===60&&r.newCarry===60&&r.madeGame===false;});
+  t('Chicago: carried 60 + 60 completes game (300 bonus, carry wiped)',function(){
+    var r=scoreContract({lvl:2,st:2,dbl:0,bidder:2},2,8,{chicago:true,carry:60});
+    return r.points===360&&r.madeGame===true&&r.newCarry===0;});
+  t('Chicago: part-score made on final deal = 100 bonus',function(){
+    var r=scoreContract({lvl:2,st:2,dbl:0,bidder:2},2,8,{chicago:true,finalDeal:true});
+    return r.points===160&&r.newCarry===0;});
+  t('Chicago: defeat leaves the carry untouched',function(){
+    var r=scoreContract({lvl:4,st:2,dbl:0,bidder:2},2,9,{chicago:true,carry:60});
+    return r.points===50&&r.side==='EW'&&r.newCarry===60;});
+  t('Duplicate mode still pays the 50 part-score bonus',function(){
+    return scoreContract({lvl:2,st:2,dbl:0,bidder:2},2,8).points===110;});
+  /* Chicago session bookkeeping */
+  function chiSess(){return {mode:'chicago',dealNo:1,part:{NS:0,EW:0},total:{NS:0,EW:0}}}
+  t('Session: made game wipes BOTH sides’ part-scores',function(){
+    var s=chiSess();s.part.NS=60;s.part.EW=40;
+    // NS make 3NT: 100 below the line -> game
+    var r=scoreContract({lvl:3,st:4,dbl:0,bidder:0},0,9,{chicago:true,carry:60});
+    applyDealResult(s,'NS',r);
+    return s.part.NS===0&&s.part.EW===0&&r.madeGame===true;});
+  t('Session: a defeat does not disturb either part-score',function(){
+    var s=chiSess();s.part.NS=60;s.part.EW=40;
+    var r=scoreContract({lvl:4,st:2,dbl:0,bidder:0},0,9,{chicago:true,carry:60});
+    applyDealResult(s,'NS',r);
+    return s.part.NS===60&&s.part.EW===40&&s.total.EW===50;});
+  t('Session: two part-scores add to a game across deals',function(){
+    var s=chiSess(),r1,r2;
+    r1=scoreContract({lvl:2,st:2,dbl:0,bidder:0},0,8,{chicago:true,carry:s.part.NS});
+    applyDealResult(s,'NS',r1);                       // 60 below the line, no bonus
+    r2=scoreContract({lvl:2,st:2,dbl:0,bidder:0},0,8,{chicago:true,carry:s.part.NS});
+    applyDealResult(s,'NS',r2);                       // 60+60=120 -> game
+    return r1.points===60&&s.total.NS===420&&r2.madeGame===true&&s.part.NS===0;});
+  t('Session: opponents’ game wipes my part-score too',function(){
+    var s=chiSess();s.part.NS=90;
+    var r=scoreContract({lvl:4,st:3,dbl:0,bidder:1},1,10,{chicago:true,carry:0});
+    applyDealResult(s,'EW',r);
+    return s.part.NS===0&&s.total.EW===420;});
+  t('Endless mode: totals accumulate, no part-score tracking',function(){
+    var s={mode:'endless',dealNo:1,part:{NS:0,EW:0},total:{NS:0,EW:0}};
+    applyDealResult(s,'NS',scoreContract({lvl:2,st:2,dbl:0,bidder:0},0,8));
+    return s.total.NS===110&&s.part.NS===0;});
+  /* Chicago vulnerability schedule */
+  t('Chicago vul: deal 1 none, deal 4 both',function(){
+    var a=chicagoVul(1,0),d=chicagoVul(4,0);
+    return !a.NS&&!a.EW&&d.NS&&d.EW;});
+  t('Chicago vul: deals 2-3 = dealer’s side only',function(){
+    var d2=chicagoVul(2,1),d3=chicagoVul(3,2); // dealer E (EW), dealer S (NS)
+    return !d2.NS&&d2.EW&&d3.NS&&!d3.EW;});
+  var pass=0,fail=0,lines=[],i;
+  for(i=0;i<results.length;i++){
+    var r=results[i];
+    if(r.pass)pass++;else fail++;
+    lines.push((r.pass?'PASS  ':'FAIL  ')+r.name+(r.err?'  ['+r.err+']':''));
+  }
+  var summary='TESTS: '+pass+'/'+results.length+' passed'+(fail?'  ('+fail+' FAILED)':'');
+  if(typeof document!=='undefined'){
+    var out=el('testOut');
+    out.textContent=summary+'\n'+lines.join('\n');
+    out.style.display='block';
+  }else{
+    console.log(summary);
+    for(i=0;i<lines.length;i++)if(lines[i].indexOf('FAIL')===0)console.log(lines[i]);
+  }
+  return {pass:pass,fail:fail,lines:lines};
+}
+/* ================= bootstrap ================= */
+if(typeof document!=='undefined'&&document.getElementById){
+  if(typeof Brain==='undefined'){
+    document.body.innerHTML='<div style="padding:2em;font:16px sans-serif;color:#fff">brain.js not found. Keep <b>brain.js</b> in the same folder as bridge.html.</div>';
+    throw new Error('brain.js missing');
+  }
+  init();
+  if(typeof location!=='undefined'&&location.hash==='#test')setTimeout(runTests,60);
+}
+</script>
+</body>
+</html>
